@@ -3,24 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 
 const Register = () => {
     const navigate = useNavigate();
-    const [role, setRole] = useState("candidate"); // 'candidate', 'referrer', 'recruiter'
-    const [fullName, setFullName] = useState("");
+    const [name, setName] = useState("");
     const [email, setEmail] = useState("");
-    const [phone, setPhone] = useState("");
     const [password, setPassword] = useState("");
-    const [confirmPassword, setConfirmPassword] = useState("");
+    const [college, setCollege] = useState("");
+    const [course, setCourse] = useState("");
+    const [graduationYear, setGraduationYear] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
 
     const handleRegisterSubmit = (e) => {
         e.preventDefault();
         setErrorMessage("");
-
-        // Validate password match
-        if (password !== confirmPassword) {
-            setErrorMessage("Passwords do not match.");
-            return;
-        }
 
         // Programmatically block registering with admin@gmail.com
         if (email.toLowerCase().trim() === "admin@gmail.com") {
@@ -45,11 +39,14 @@ const Register = () => {
 
             // Create new user object
             const newUser = {
-                fullName,
+                fullName: name,
+                name,
                 email: email.toLowerCase().trim(),
-                phone,
                 password,
-                role
+                college,
+                course,
+                graduationYear,
+                role: "candidate"
             };
 
             // Save user
@@ -76,26 +73,8 @@ const Register = () => {
                     
                     {/* Header Row: Title */}
                     <div className="flex flex-col items-center mb-6">
-                        <h2 className="text-3xl font-extrabold text-white tracking-tight text-center">Create Account</h2>
-                        <p className="text-slate-400 text-sm mt-1 text-center">Get started on the Job Referral Platform</p>
-                    </div>
-
-                    {/* Role Selection Tabs */}
-                    <div className="flex bg-slate-900/90 border border-slate-800/90 p-1.5 rounded-full mb-6">
-                        {["candidate", "referrer", "recruiter"].map((r) => (
-                            <button
-                                key={r}
-                                type="button"
-                                onClick={() => setRole(r)}
-                                className={`flex-1 py-2 text-sm font-semibold rounded-full capitalize transition-all duration-200 cursor-pointer ${
-                                    role === r
-                                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                                }`}
-                            >
-                                {r}
-                            </button>
-                        ))}
+                        <h2 className="text-3xl font-extrabold text-white tracking-tight text-center">Student Registration</h2>
+                        <p className="text-slate-400 text-sm mt-1 text-center">Enter your details to create a student account</p>
                     </div>
 
                     {/* Error Alerts */}
@@ -108,24 +87,24 @@ const Register = () => {
                     {/* Inputs & Form Control */}
                     <form onSubmit={handleRegisterSubmit} className="flex flex-col gap-4">
                         
-                        {/* Full Name */}
-                        <div className="flex flex-col text-left">
-                            <label htmlFor="fullName" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Full Name</label>
-                            <input
-                                type="text"
-                                id="fullName"
-                                className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
-                                placeholder="John Doe"
-                                value={fullName}
-                                onChange={(e) => setFullName(e.target.value)}
-                                required
-                                disabled={isLoading}
-                            />
-                        </div>
-
-                        {/* Email and Phone Grid */}
+                        {/* Name and Email Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Email */}
+                            {/* Name */}
+                            <div className="flex flex-col text-left">
+                                <label htmlFor="name" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Name</label>
+                                <input
+                                    type="text"
+                                    id="name"
+                                    className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
+                                    placeholder="John Doe"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            {/* Email Address */}
                             <div className="flex flex-col text-left">
                                 <label htmlFor="email" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Email Address</label>
                                 <input
@@ -139,25 +118,58 @@ const Register = () => {
                                     disabled={isLoading}
                                 />
                             </div>
+                        </div>
 
-                            {/* Phone Number */}
+                        {/* College and Course Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* College */}
                             <div className="flex flex-col text-left">
-                                <label htmlFor="phone" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Phone Number</label>
+                                <label htmlFor="college" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">College</label>
                                 <input
-                                    type="tel"
-                                    id="phone"
+                                    type="text"
+                                    id="college"
                                     className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
-                                    placeholder="+1 (555) 000-0000"
-                                    value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
+                                    placeholder="e.g. Stanford University"
+                                    value={college}
+                                    onChange={(e) => setCollege(e.target.value)}
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            {/* Course */}
+                            <div className="flex flex-col text-left">
+                                <label htmlFor="course" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Course</label>
+                                <input
+                                    type="text"
+                                    id="course"
+                                    className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
+                                    placeholder="e.g. B.Tech Computer Science"
+                                    value={course}
+                                    onChange={(e) => setCourse(e.target.value)}
                                     required
                                     disabled={isLoading}
                                 />
                             </div>
                         </div>
 
-                        {/* Password and Confirm Password Grid */}
+                        {/* Graduation Year and Password Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Graduation Year */}
+                            <div className="flex flex-col text-left">
+                                <label htmlFor="graduationYear" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Graduation Year</label>
+                                <input
+                                    type="text"
+                                    id="graduationYear"
+                                    className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
+                                    placeholder="e.g. 2026"
+                                    value={graduationYear}
+                                    onChange={(e) => setGraduationYear(e.target.value)}
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
                             {/* Password */}
                             <div className="flex flex-col text-left">
                                 <label htmlFor="password" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Password</label>
@@ -168,21 +180,6 @@ const Register = () => {
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                    disabled={isLoading}
-                                />
-                            </div>
-
-                            {/* Confirm Password */}
-                            <div className="flex flex-col text-left">
-                                <label htmlFor="confirmPassword" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">Confirm Password</label>
-                                <input
-                                    type="password"
-                                    id="confirmPassword"
-                                    className="w-full px-5 py-3 rounded-full border border-slate-700/80 bg-slate-900/90 focus:bg-slate-900 text-white text-[14px] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder-slate-500 text-left"
-                                    placeholder="••••••••"
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
                                     required
                                     disabled={isLoading}
                                 />
