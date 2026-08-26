@@ -12,7 +12,7 @@ const Register = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
 
-    const handleRegisterSubmit = (e) => {
+    const handleRegisterSubmit = async (e) => {
         e.preventDefault();
         setErrorMessage("");
 
@@ -24,39 +24,35 @@ const Register = () => {
 
         setIsLoading(true);
 
-        setTimeout(() => {
-            // Retrieve existing users
-            const existingUsersRaw = localStorage.getItem("job_platform_users");
-            const existingUsers = existingUsersRaw ? JSON.parse(existingUsersRaw) : [];
+        try {
+            const response = await fetch("/api/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name,
+                    email: email.toLowerCase().trim(),
+                    password,
+                    college,
+                    course,
+                    graduationYear,
+                }),
+            });
 
-            // Check if user already exists
-            const userExists = existingUsers.some(u => u.email.toLowerCase().trim() === email.toLowerCase().trim());
-            if (userExists) {
-                setErrorMessage("An account with this email address already exists.");
+            const data = await response.json();
+
+            if (!response.ok) {
+                setErrorMessage(data.error || "Registration failed. Please try again.");
                 setIsLoading(false);
                 return;
             }
 
-            // Create new user object
-            const newUser = {
-                fullName: name,
-                name,
-                email: email.toLowerCase().trim(),
-                password,
-                college,
-                course,
-                graduationYear,
-                role: "candidate"
-            };
-
-            // Save user
-            existingUsers.push(newUser);
-            localStorage.setItem("job_platform_users", JSON.stringify(existingUsers));
-
             setIsLoading(false);
             // Redirect to login page with success message state
             navigate("/", { state: { successMessage: "Registration successful! Please sign in using your credentials." } });
-        }, 1200);
+        } catch (err) {
+            setErrorMessage("Unable to connect to server. Please try again.");
+            setIsLoading(false);
+        }
     };
 
     return (

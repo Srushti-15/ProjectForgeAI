@@ -18,47 +18,62 @@ const Login = () => {
         }
     }, [location]);
 
-    const handleLoginSubmit = (e) => {
+    const handleLoginSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
         setErrorMessage("");
         setSuccessMessage("");
 
-        // Simulate interactive verification loading
-        setTimeout(() => {
-            const trimmedEmail = email.toLowerCase().trim();
+        const trimmedEmail = email.toLowerCase().trim();
 
-            // Admin check
-            if (trimmedEmail === "admin@gmail.com") {
-                if (password === "admin1234") {
-                    const adminUser = { fullName: "System Admin", email: "admin@gmail.com", role: "admin" };
-                    localStorage.setItem("current_user", JSON.stringify(adminUser));
-                    setIsLoading(false);
-                    navigate("/admin/dashboard");
-                } else {
-                    setErrorMessage("Invalid email or password.");
-                    setIsLoading(false);
-                }
-                return;
-            }
-
-            // Normal user check
-            const existingUsersRaw = localStorage.getItem("job_platform_users");
-            const existingUsers = existingUsersRaw ? JSON.parse(existingUsersRaw) : [];
-
-            const matchedUser = existingUsers.find(
-                u => u.email.toLowerCase().trim() === trimmedEmail && u.password === password
-            );
-
-            if (matchedUser) {
-                localStorage.setItem("current_user", JSON.stringify(matchedUser));
+        // Admin check — hardcoded, no API call needed
+        if (trimmedEmail === "admin@gmail.com") {
+            if (password === "admin123") {
+                const adminUser = { fullName: "System Admin", email: "admin@gmail.com", role: "admin" };
+                localStorage.setItem("current_user", JSON.stringify(adminUser));
                 setIsLoading(false);
-                navigate(`/${matchedUser.role}/dashboard`);
+                navigate("/admin/dashboard");
             } else {
                 setErrorMessage("Invalid email or password.");
                 setIsLoading(false);
             }
-        }, 1200);
+            return;
+        }
+
+        // Student login — call backend API
+        try {
+            const response = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: trimmedEmail, password }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                setErrorMessage(data.error || "Invalid email or password.");
+                setIsLoading(false);
+                return;
+            }
+
+            // Store JWT token and user info in localStorage
+            localStorage.setItem("auth_token", data.token);
+            const userObj = {
+                fullName: data.fullName,
+                name: data.name,
+                email: data.email,
+                college: data.college,
+                course: data.course,
+                graduationYear: data.graduationYear,
+                role: data.role,
+            };
+            localStorage.setItem("current_user", JSON.stringify(userObj));
+            setIsLoading(false);
+            navigate(`/${data.role}/dashboard`);
+        } catch (err) {
+            setErrorMessage("Unable to connect to server. Please try again.");
+            setIsLoading(false);
+        }
     };
 
     return (
