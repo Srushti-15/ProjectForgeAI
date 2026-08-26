@@ -68,8 +68,26 @@ const Login = () => {
                 role: data.role,
             };
             localStorage.setItem("current_user", JSON.stringify(userObj));
+            // First-time login → complete profile; returning → dashboard
+            let profileExists = !!localStorage.getItem(`skillforge_profile_${data.email}`);
+            if (!profileExists) {
+                try {
+                    const checkRes = await fetch(`/api/profile/exists?email=${encodeURIComponent(data.email)}`);
+                    if (checkRes.ok) {
+                        const checkData = await checkRes.json();
+                        profileExists = checkData.exists;
+                    }
+                } catch (e) {
+                    console.warn("Could not check profile existence on backend", e);
+                }
+            }
+
             setIsLoading(false);
-            navigate(`/${data.role}/dashboard`);
+            if (profileExists) {
+                navigate("/candidate/dashboard");
+            } else {
+                navigate("/complete-profile");
+            }
         } catch (err) {
             setErrorMessage("Unable to connect to server. Please try again.");
             setIsLoading(false);

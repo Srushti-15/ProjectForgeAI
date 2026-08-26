@@ -29,6 +29,7 @@ public class SecurityConfig {
                 // Always allow browser CORS preflight requests
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/profile/**").permitAll()
                 .anyRequest().authenticated()
             );
         return http.build();

@@ -7,6 +7,7 @@ import CandidateDashboard from './pages/Dashboards/CandidateDashboard';
 import ReferrerDashboard from './pages/Dashboards/ReferrerDashboard';
 import RecruiterDashboard from './pages/Dashboards/RecruiterDashboard';
 import AdminDashboard from './pages/Dashboards/AdminDashboard';
+import CompleteProfile from './pages/Auth/CompleteProfile';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/complete-profile" element={<CompleteProfile />} />
         <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
         <Route path="/referrer/dashboard" element={<ReferrerDashboard />} />
         <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
