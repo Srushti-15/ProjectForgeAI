@@ -8,7 +8,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for candidate developer profiles.
@@ -76,7 +78,33 @@ public class ProfileController {
         return ResponseEntity.ok(Map.of("exists", exists));
     }
 
-    /* ─── helpers ────────────────────────────────────────────────────── */
+    /* ─── All profiles (used by Find Teammates matching) ────────────── */
+    @GetMapping("/all")
+    public ResponseEntity<?> getAllProfiles() {
+        List<Map<String, Object>> result = profileRepository.findAll()
+                .stream()
+                .map(p -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("email",           p.getEmail());
+                    m.put("name",            p.getName());
+                    m.put("photo",           p.getPhoto());   // included for avatar display
+                    m.put("college",         p.getCollege());
+                    m.put("degree",          p.getDegree());
+                    m.put("graduationYear",  p.getGraduationYear());
+                    m.put("skills",          p.getSkills());
+                    m.put("interests",       p.getInterests());
+                    m.put("experienceLevel", p.getExperienceLevel());
+                    m.put("projectDomain",   p.getProjectDomain());
+                    m.put("availability",    p.getAvailability());
+                    m.put("github",          p.getGithub());
+                    m.put("linkedin",        p.getLinkedin());
+                    return m;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
+
     private String str(Map<String, Object> map, String key) {
         Object v = map.get(key);
         return v != null ? v.toString() : null;
