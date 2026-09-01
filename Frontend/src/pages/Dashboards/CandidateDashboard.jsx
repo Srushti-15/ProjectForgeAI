@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { MyProjectsSection, KanbanBoardSection, MilestonesSection } from "../../components/Projects/ProjectSections";
 
 const SKILL_COLORS = ["#6366f1","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ef4444","#ec4899","#3b82f6"];
 
@@ -18,6 +19,16 @@ const icons = {
     teamChat:    "M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z",
     ideas:       "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m1.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
     projects:    "M3 7h18M3 12h18M3 17h18",
+    kanban:      "M4 4h4v16H4V4zm6 0h4v10h-4V4zm6 0h4v16h-4V4z",
+    milestones:  "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7",
+    plus:        "M12 5v14M5 12h14",
+    check:       "M20 6L9 17l-5-5",
+    clock:       "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+    zap:         "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+    eye:         "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 100-6 3 3 0 000 6z",
+    calendar:    "M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z M16 2v4 M8 2v4 M3 10h18",
+    users:       "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M9 7a4 4 0 100-8 4 4 0 000 8z M23 21v-2a4 4 0 00-3-3.87 M16 3.13a4 4 0 010 7.75",
+    filter:      "M22 3H2l8 9.46V19l4 2v-8.54L22 3z",
     notif:       "M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 01-3.46 0",
     settings:    "M12 15a3 3 0 100-6 3 3 0 000 6z M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z",
     logout:      "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9",
@@ -422,6 +433,7 @@ const FindTeammatesSection = ({ profileData, currentUserEmail, onNavigateToChat,
     const [loading, setLoading]       = useState(true);
 
     useEffect(() => {
+        // Load all candidate profiles from backend
         fetch("/api/profile/all")
             .then(r => r.ok ? r.json() : [])
             .then(data => {
@@ -440,8 +452,15 @@ const FindTeammatesSection = ({ profileData, currentUserEmail, onNavigateToChat,
             .catch(() => {
                 setCandidates([]); setFiltered([]); setLoading(false);
             });
-        const inv = JSON.parse(localStorage.getItem(`sf_invitations_sent_${currentUserEmail}`) || "[]");
-        setInvitedSet(new Set(inv));
+        // Load already-sent invites from backend to pre-populate invitedSet
+        fetch(`/api/team/invites/sent?email=${encodeURIComponent(currentUserEmail)}`)
+            .then(r => r.ok ? r.json() : [])
+            .then(sent => {
+                // sent = [{toEmail, status}] — mark as invited if pending or accepted
+                const emails = (sent || []).map(s => s.toEmail);
+                setInvitedSet(new Set(emails));
+            })
+            .catch(() => {});
     }, [currentUserEmail, profileData]);
 
     useEffect(() => {
@@ -462,27 +481,27 @@ const FindTeammatesSection = ({ profileData, currentUserEmail, onNavigateToChat,
 
     const sendInvite = (candidate) => {
         if (!profileData) { alert("Please complete your profile before sending invitations."); return; }
-        const key      = `sf_invitations_${candidate.email}`;
-        const existing = JSON.parse(localStorage.getItem(key) || "[]");
-        if (existing.some(inv => inv.fromEmail === currentUserEmail)) return;
-        const newInvite = {
-            id: Date.now(), fromEmail: currentUserEmail,
-            fromName: profileData.name || currentUserEmail,
-            fromPhoto: profileData.photo || null,
-            fromCollege: profileData.college || "",
-            fromDomain:  profileData.projectDomain || "",
-            fromSkills:  profileData.skills || [],
-            fromDegree:  profileData.degree || "",
-            fromAvailability: profileData.availability || "",
-            sentAt: new Date().toISOString(), status: "pending",
-        };
-        localStorage.setItem(key, JSON.stringify([...existing, newInvite]));
-        const sentKey  = `sf_invitations_sent_${currentUserEmail}`;
-        const sentList = JSON.parse(localStorage.getItem(sentKey) || "[]");
-        if (!sentList.includes(candidate.email)) {
-            localStorage.setItem(sentKey, JSON.stringify([...sentList, candidate.email]));
-        }
+        // Optimistically update UI immediately
         setInvitedSet(prev => new Set([...prev, candidate.email]));
+        // Persist to backend
+        fetch("/api/team/invite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                fromEmail:        currentUserEmail,
+                toEmail:          candidate.email,
+                fromName:         profileData.name         || currentUserEmail,
+                fromPhoto:        profileData.photo        || null,
+                fromCollege:      profileData.college      || "",
+                fromDegree:       profileData.degree       || "",
+                fromDomain:       profileData.projectDomain || "",
+                fromAvailability: profileData.availability || "",
+                fromSkills:       JSON.stringify(profileData.skills || []),
+            }),
+        }).catch(() => {
+            // Rollback on failure
+            setInvitedSet(prev => { const n = new Set(prev); n.delete(candidate.email); return n; });
+        });
     };
 
     const allSkills = [...new Set(candidates.flatMap(c => (c.skills||[]).map(s => s.name)))].slice(0, 8);
@@ -807,11 +826,11 @@ const TeamMembersSection = ({ currentUserEmail, teamMembers, onNavigateToChat })
                                     padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600 }}>{tag}</span>
                             ))}
                         </div>
-                        {member.skills?.length > 0 && (
+                        {Array.isArray(member.skills) && member.skills.length > 0 && (
                             <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:16 }}>
-                                {member.skills.slice(0,4).map(sk => (
-                                    <span key={sk.name} style={{ background:"#ede9fe", color:"#6366f1",
-                                        padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600 }}>{sk.name}</span>
+                                {member.skills.slice(0,4).map((sk, idx) => (
+                                    <span key={sk?.name || idx} style={{ background:"#ede9fe", color:"#6366f1",
+                                        padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600 }}>{sk?.name || sk}</span>
                                 ))}
                                 {member.skills.length > 4 && (
                                     <span style={{ background:"#f1f5f9", color:"#64748b",
@@ -839,28 +858,82 @@ const TeamMembersSection = ({ currentUserEmail, teamMembers, onNavigateToChat })
 const TeamChatSection = ({ currentUserEmail, currentUserName, teamMembers, initialChatTarget }) => {
     const [selectedEmail, setSelectedEmail] = useState(initialChatTarget || (teamMembers[0]?.email || null));
     const [messages, setMessages]           = useState([]);
+    // lastMsgPreviews: { [email]: lastMsgText } for sidebar preview
+    const [lastMsgPreviews, setLastMsgPreviews] = useState({});
     const [input, setInput]                 = useState("");
     const messagesEndRef                    = useRef(null);
-
-    const chatKey = (e1, e2) => { const s = [e1, e2].sort(); return `sf_chat_${s[0]}_${s[1]}`; };
+    const pollRef                           = useRef(null);
 
     useEffect(() => { if (initialChatTarget) setSelectedEmail(initialChatTarget); }, [initialChatTarget]);
 
+    // Load and poll messages for the selected conversation
     useEffect(() => {
         if (!selectedEmail) return;
-        const msgs = JSON.parse(localStorage.getItem(chatKey(currentUserEmail, selectedEmail)) || "[]");
-        setMessages(msgs);
+        const loadMessages = () => {
+            fetch(`/api/team/chat/messages?e1=${encodeURIComponent(currentUserEmail)}&e2=${encodeURIComponent(selectedEmail)}`)
+                .then(r => r.ok ? r.json() : [])
+                .then(data => {
+                    setMessages(data || []);
+                    if (data && data.length > 0) {
+                        const last = data[data.length - 1];
+                        setLastMsgPreviews(prev => ({ ...prev, [selectedEmail]: last.text }));
+                    }
+                })
+                .catch(() => {});
+        };
+        loadMessages();
+        // Poll every 3 seconds for real-time feel
+        pollRef.current = setInterval(loadMessages, 3000);
+        return () => clearInterval(pollRef.current);
     }, [selectedEmail, currentUserEmail]);
+
+    // Load last message previews for all teammates (for sidebar)
+    useEffect(() => {
+        if (!teamMembers.length) return;
+        teamMembers.forEach(member => {
+            fetch(`/api/team/chat/messages?e1=${encodeURIComponent(currentUserEmail)}&e2=${encodeURIComponent(member.email)}`)
+                .then(r => r.ok ? r.json() : [])
+                .then(data => {
+                    if (data && data.length > 0) {
+                        const last = data[data.length - 1];
+                        setLastMsgPreviews(prev => ({ ...prev, [member.email]: last.text }));
+                    }
+                })
+                .catch(() => {});
+        });
+    }, [teamMembers, currentUserEmail]);
 
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages]);
 
     const sendMessage = () => {
         const text = input.trim(); if (!text || !selectedEmail) return;
-        const msg  = { from: currentUserEmail, fromName: currentUserName, text, time: new Date().toISOString() };
-        const key  = chatKey(currentUserEmail, selectedEmail);
-        const updated = [...JSON.parse(localStorage.getItem(key) || "[]"), msg];
-        localStorage.setItem(key, JSON.stringify(updated));
-        setMessages(updated); setInput("");
+        // Optimistic update
+        const optimistic = { from: currentUserEmail, fromName: currentUserName, text, time: new Date().toISOString() };
+        setMessages(prev => [...prev, optimistic]);
+        setInput("");
+        // Persist to backend
+        fetch("/api/team/chat/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                fromEmail: currentUserEmail,
+                toEmail:   selectedEmail,
+                fromName:  currentUserName,
+                text,
+            }),
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(saved => {
+            if (saved) {
+                // Replace optimistic with server-confirmed message
+                setMessages(prev => {
+                    const withoutLast = prev.slice(0, -1);
+                    return [...withoutLast, saved];
+                });
+                setLastMsgPreviews(prev => ({ ...prev, [selectedEmail]: saved.text }));
+            }
+        })
+        .catch(() => {});
     };
 
     const selectedMember = teamMembers.find(m => m.email === selectedEmail);
@@ -895,8 +968,7 @@ const TeamChatSection = ({ currentUserEmail, currentUserName, teamMembers, initi
                     <div style={{ flex:1, overflowY:"auto" }}>
                         {teamMembers.map(member => {
                             const isSelected = member.email === selectedEmail;
-                            const msgs = JSON.parse(localStorage.getItem(chatKey(currentUserEmail, member.email)) || "[]");
-                            const lastMsg = msgs[msgs.length-1];
+                            const preview    = lastMsgPreviews[member.email];
                             return (
                                 <div key={member.email} onClick={() => setSelectedEmail(member.email)}
                                     style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
@@ -915,7 +987,7 @@ const TeamChatSection = ({ currentUserEmail, currentUserName, teamMembers, initi
                                         <div style={{ fontSize:13, fontWeight:700, color: isSelected ? "#6366f1" : "#1e293b",
                                             whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{member.name}</div>
                                         <div style={{ fontSize:11, color:"#94a3b8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                                            {lastMsg ? lastMsg.text : "No messages yet"}
+                                            {preview || "No messages yet"}
                                         </div>
                                     </div>
                                 </div>
@@ -998,62 +1070,76 @@ const TeamChatSection = ({ currentUserEmail, currentUserName, teamMembers, initi
 };
 
 /* INVITATION POPUP */
-const InvitePopup = ({ invite, onAccept, onReject }) => (
-    <div style={{ position:"fixed", bottom:24, right:24, zIndex:2000,
-        background:"#fff", borderRadius:16, padding:"20px 22px",
-        boxShadow:"0 8px 40px rgba(99,102,241,0.22)", border:"1px solid #e2e8f0",
-        width:320, animation:"slideInRight 0.35s cubic-bezier(0.16,1,0.3,1)" }}>
-        <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:14 }}>
-            <div style={{ width:44, height:44, borderRadius:"50%", flexShrink:0,
-                background: invite.fromPhoto ? "transparent" : getAvatarColor(invite.fromName),
-                display:"flex", alignItems:"center", justifyContent:"center",
-                fontSize:16, fontWeight:800, color:"#fff", overflow:"hidden", border:"2px solid #e2e8f0" }}>
-                {invite.fromPhoto ? <img src={invite.fromPhoto} alt={invite.fromName} style={{ width:"100%",height:"100%",objectFit:"cover" }}/> : (invite.fromName||"?").charAt(0).toUpperCase()}
-            </div>
-            <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:"#1e293b", marginBottom:2 }}>Teammate Invitation</div>
-                <div style={{ fontSize:12.5, color:"#374151", lineHeight:1.5 }}>
-                    <strong>{invite.fromName}</strong> wants to team up with you!
+const InvitePopup = ({ invite, onAccept, onReject }) => {
+    const rawSkills = invite?.fromSkills;
+    const skillsList = Array.isArray(rawSkills)
+        ? rawSkills
+        : (typeof rawSkills === "string" ? (() => {
+            try {
+                const parsed = JSON.parse(rawSkills);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        })() : []);
+
+    return (
+        <div style={{ position:"fixed", bottom:24, right:24, zIndex:2000,
+            background:"#fff", borderRadius:16, padding:"20px 22px",
+            boxShadow:"0 8px 40px rgba(99,102,241,0.22)", border:"1px solid #e2e8f0",
+            width:320, animation:"slideInRight 0.35s cubic-bezier(0.16,1,0.3,1)" }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:14 }}>
+                <div style={{ width:44, height:44, borderRadius:"50%", flexShrink:0,
+                    background: invite.fromPhoto ? "transparent" : getAvatarColor(invite.fromName),
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:16, fontWeight:800, color:"#fff", overflow:"hidden", border:"2px solid #e2e8f0" }}>
+                    {invite.fromPhoto ? <img src={invite.fromPhoto} alt={invite.fromName} style={{ width:"100%",height:"100%",objectFit:"cover" }}/> : (invite.fromName||"?").charAt(0).toUpperCase()}
                 </div>
-                {invite.fromCollege && (
-                    <div style={{ fontSize:11.5, color:"#64748b", marginTop:2 }}>
-                        {[invite.fromDegree, invite.fromCollege].filter(Boolean).join(" · ")}
+                <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:"#1e293b", marginBottom:2 }}>Teammate Invitation</div>
+                    <div style={{ fontSize:12.5, color:"#374151", lineHeight:1.5 }}>
+                        <strong>{invite.fromName}</strong> wants to team up with you!
                     </div>
-                )}
+                    {invite.fromCollege && (
+                        <div style={{ fontSize:11.5, color:"#64748b", marginTop:2 }}>
+                            {[invite.fromDegree, invite.fromCollege].filter(Boolean).join(" · ")}
+                        </div>
+                    )}
+                </div>
+            </div>
+            {skillsList.length > 0 && (
+                <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:14 }}>
+                    {skillsList.slice(0,4).map((sk, i) => (
+                        <span key={sk?.name || i} style={{ background:"#ede9fe", color:"#6366f1",
+                            padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600 }}>{sk?.name || sk}</span>
+                    ))}
+                </div>
+            )}
+            {invite.fromAvailability && (
+                <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:14 }}>
+                    <div style={{ width:7, height:7, borderRadius:"50%", background:"#10b981" }}/>
+                    <span style={{ fontSize:12, color:"#64748b" }}>{invite.fromAvailability}</span>
+                </div>
+            )}
+            <div style={{ display:"flex", gap:8 }}>
+                <button onClick={onReject}
+                    style={{ flex:1, padding:"9px 0", background:"#f1f5f9", color:"#64748b",
+                        border:"1px solid #e2e8f0", borderRadius:9, fontSize:12.5, fontWeight:600, cursor:"pointer" }}
+                    onMouseEnter={e => e.currentTarget.style.background="#fee2e2"}
+                    onMouseLeave={e => e.currentTarget.style.background="#f1f5f9"}>
+                    Reject
+                </button>
+                <button onClick={onAccept}
+                    style={{ flex:1.4, padding:"9px 0", background:"linear-gradient(90deg,#6366f1,#8b5cf6)",
+                        color:"#fff", border:"none", borderRadius:9, fontSize:12.5, fontWeight:700, cursor:"pointer" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity="0.9"}
+                    onMouseLeave={e => e.currentTarget.style.opacity="1"}>
+                    Accept Invite
+                </button>
             </div>
         </div>
-        {invite.fromSkills?.length > 0 && (
-            <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:14 }}>
-                {invite.fromSkills.slice(0,4).map(sk => (
-                    <span key={sk.name} style={{ background:"#ede9fe", color:"#6366f1",
-                        padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600 }}>{sk.name}</span>
-                ))}
-            </div>
-        )}
-        {invite.fromAvailability && (
-            <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:14 }}>
-                <div style={{ width:7, height:7, borderRadius:"50%", background:"#10b981" }}/>
-                <span style={{ fontSize:12, color:"#64748b" }}>{invite.fromAvailability}</span>
-            </div>
-        )}
-        <div style={{ display:"flex", gap:8 }}>
-            <button onClick={onReject}
-                style={{ flex:1, padding:"9px 0", background:"#f1f5f9", color:"#64748b",
-                    border:"1px solid #e2e8f0", borderRadius:9, fontSize:12.5, fontWeight:600, cursor:"pointer" }}
-                onMouseEnter={e => e.currentTarget.style.background="#fee2e2"}
-                onMouseLeave={e => e.currentTarget.style.background="#f1f5f9"}>
-                Reject
-            </button>
-            <button onClick={onAccept}
-                style={{ flex:1.4, padding:"9px 0", background:"linear-gradient(90deg,#6366f1,#8b5cf6)",
-                    color:"#fff", border:"none", borderRadius:9, fontSize:12.5, fontWeight:700, cursor:"pointer" }}
-                onMouseEnter={e => e.currentTarget.style.opacity="0.9"}
-                onMouseLeave={e => e.currentTarget.style.opacity="1"}>
-                Accept Invite
-            </button>
-        </div>
-    </div>
-);
+    );
+};
 
 /* CANDIDATE DASHBOARD */
 const CandidateDashboard = () => {
@@ -1065,6 +1151,7 @@ const CandidateDashboard = () => {
     const [teamMembers, setTeamMembers] = useState([]);
     const [pendingInvite, setPendingInvite] = useState(null);
     const [chatTarget, setChatTarget]   = useState(null);
+    const [selectedProjectId, setSelectedProjectId] = useState(null);
 
     useEffect(() => {
         const raw = localStorage.getItem("current_user");
@@ -1090,18 +1177,76 @@ const CandidateDashboard = () => {
             .catch(err => console.warn("Could not fetch profile from backend", err));
     }, [navigate]);
 
-    useEffect(() => {
-        if (!user) return;
-        const members = JSON.parse(localStorage.getItem(`sf_team_${user.email}`) || "[]");
-        setTeamMembers(members);
-    }, [user]);
+    // Load teammates from backend (real DB — works across browsers)
+    const loadTeammates = (email) => {
+        fetch(`/api/team/teammates?email=${encodeURIComponent(email)}`)
+            .then(r => r.ok ? r.json() : [])
+            .then(data => {
+                const parsed = (data || []).map(m => {
+                    let skills = [];
+                    if (Array.isArray(m.skills)) {
+                        skills = m.skills;
+                    } else if (typeof m.skills === "string") {
+                        try {
+                            const p = JSON.parse(m.skills || "[]");
+                            skills = Array.isArray(p) ? p : [];
+                        } catch {
+                            skills = [];
+                        }
+                    }
+                    let interests = [];
+                    if (Array.isArray(m.interests)) {
+                        interests = m.interests;
+                    } else if (typeof m.interests === "string") {
+                        try {
+                            const p = JSON.parse(m.interests || "[]");
+                            interests = Array.isArray(p) ? p : [];
+                        } catch {
+                            interests = [];
+                        }
+                    }
+                    return {
+                        ...m,
+                        skills,
+                        interests,
+                    };
+                });
+                setTeamMembers(parsed);
+            })
+            .catch(() => setTeamMembers([]));
+    };
 
     useEffect(() => {
         if (!user) return;
+        loadTeammates(user.email);
+    }, [user]);
+
+    // Poll backend every 5 seconds for pending invites
+    useEffect(() => {
+        if (!user) return;
         const checkInvites = () => {
-            const invites = JSON.parse(localStorage.getItem(`sf_invitations_${user.email}`) || "[]");
-            const pending = invites.find(inv => inv.status === "pending");
-            setPendingInvite(pending || null);
+            fetch(`/api/team/invites/pending?email=${encodeURIComponent(user.email)}`)
+                .then(r => r.ok ? r.json() : [])
+                .then(data => {
+                    const raw = (data || [])[0] || null;
+                    if (raw) {
+                        let parsedSkills = [];
+                        if (Array.isArray(raw.fromSkills)) {
+                            parsedSkills = raw.fromSkills;
+                        } else if (typeof raw.fromSkills === "string") {
+                            try {
+                                const p = JSON.parse(raw.fromSkills || "[]");
+                                parsedSkills = Array.isArray(p) ? p : [];
+                            } catch {
+                                parsedSkills = [];
+                            }
+                        }
+                        setPendingInvite({ ...raw, fromSkills: parsedSkills });
+                    } else {
+                        setPendingInvite(null);
+                    }
+                })
+                .catch(() => {});
         };
         checkInvites();
         const interval = setInterval(checkInvites, 5000);
@@ -1110,39 +1255,30 @@ const CandidateDashboard = () => {
 
     const handleAcceptInvite = () => {
         if (!pendingInvite || !user) return;
-        const myEmail = user.email;
-        const invite  = pendingInvite;
-        const key     = `sf_invitations_${myEmail}`;
-        const invites = JSON.parse(localStorage.getItem(key) || "[]");
-        localStorage.setItem(key, JSON.stringify(invites.map(inv => inv.id === invite.id ? { ...inv, status:"accepted" } : inv)));
-        const myTeamKey = `sf_team_${myEmail}`;
-        const myTeam    = JSON.parse(localStorage.getItem(myTeamKey) || "[]");
-        if (!myTeam.some(m => m.email === invite.fromEmail)) {
-            const nm = { email:invite.fromEmail, name:invite.fromName, photo:invite.fromPhoto,
-                college:invite.fromCollege, degree:invite.fromDegree, projectDomain:invite.fromDomain,
-                availability:invite.fromAvailability, skills:invite.fromSkills };
-            const ut = [...myTeam, nm];
-            localStorage.setItem(myTeamKey, JSON.stringify(ut));
-            setTeamMembers(ut);
-        }
-        const theirTeamKey = `sf_team_${invite.fromEmail}`;
-        const theirTeam    = JSON.parse(localStorage.getItem(theirTeamKey) || "[]");
-        if (!theirTeam.some(m => m.email === myEmail)) {
-            const me = { email:myEmail, name:profileData?.name || user.fullName || myEmail,
-                photo:profileData?.photo || null, college:profileData?.college || "",
-                degree:profileData?.degree || "", projectDomain:profileData?.projectDomain || "",
-                availability:profileData?.availability || "", skills:profileData?.skills || [] };
-            localStorage.setItem(theirTeamKey, JSON.stringify([...theirTeam, me]));
-        }
-        setPendingInvite(null);
+        const inviteId = pendingInvite.id;
+        setPendingInvite(null); // Dismiss popup immediately
+        fetch("/api/team/invite/accept", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: inviteId }),
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(() => {
+            // Refresh teammates list from backend
+            loadTeammates(user.email);
+        })
+        .catch(() => {});
     };
 
     const handleRejectInvite = () => {
         if (!pendingInvite || !user) return;
-        const key     = `sf_invitations_${user.email}`;
-        const invites = JSON.parse(localStorage.getItem(key) || "[]");
-        localStorage.setItem(key, JSON.stringify(invites.map(inv => inv.id === pendingInvite.id ? { ...inv, status:"rejected" } : inv)));
-        setPendingInvite(null);
+        const inviteId = pendingInvite.id;
+        setPendingInvite(null); // Dismiss popup immediately
+        fetch("/api/team/invite/reject", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: inviteId }),
+        }).catch(() => {});
     };
 
     const handleLogout = () => { localStorage.removeItem("current_user"); localStorage.removeItem("auth_token"); navigate("/"); };
@@ -1180,8 +1316,9 @@ const CandidateDashboard = () => {
         { label:"Find Teammates", icon:icons.teammates   },
         { label:"Team Members",   icon:icons.teamMembers },
         { label:"Team Chat",      icon:icons.teamChat    },
-        { label:"Project Ideas",  icon:icons.ideas       },
         { label:"My Projects",    icon:icons.projects    },
+        { label:"Kanban Board",   icon:icons.kanban      },
+        { label:"Milestones",     icon:icons.milestones  },
         { label:"Notifications",  icon:icons.notif       },
         { label:"Settings",       icon:icons.settings    }];
 
@@ -1271,13 +1408,14 @@ const CandidateDashboard = () => {
                     </div>
                 ))}
                 <div style={S.navLabel}>Projects</div>
-                {navItems.slice(5,7).map(item => (
+                {navItems.slice(5,8).map(item => (
                     <div key={item.label} style={S.navItem(activeNav===item.label)} onClick={() => setActiveNav(item.label)}>
                         <Icon d={item.icon} size={17}/>{item.label}
+                        {activeNav===item.label && <div style={{ position:"absolute", right:0, top:"20%", height:"60%", width:3, background:"#fff", borderRadius:"2px 0 0 2px" }}/>}
                     </div>
                 ))}
                 <div style={{ flex:1 }}/>
-                {navItems.slice(7).map(item => (
+                {navItems.slice(8).map(item => (
                     <div key={item.label} style={S.navItem(activeNav===item.label)} onClick={() => setActiveNav(item.label)}>
                         <Icon d={item.icon} size={17}/>{item.label}
                         {item.label==="Notifications" && unreadCount>0 && (
@@ -1332,6 +1470,9 @@ const CandidateDashboard = () => {
                     {activeNav==="Find Teammates" && <FindTeammatesSection profileData={profileData} currentUserEmail={user.email} onNavigateToChat={navigateToChat} teamMembers={teamMembers}/>}
                     {activeNav==="Team Members" && <TeamMembersSection currentUserEmail={user.email} teamMembers={teamMembers} onNavigateToChat={navigateToChat}/>}
                     {activeNav==="Team Chat" && <TeamChatSection currentUserEmail={user.email} currentUserName={profileData?.name || user.fullName || user.email} teamMembers={teamMembers} initialChatTarget={chatTarget}/>}
+                    {activeNav==="My Projects" && <MyProjectsSection user={user} profileData={profileData} teamMembers={teamMembers} onNavigateToKanban={(pid) => { setSelectedProjectId(pid); setActiveNav("Kanban Board"); }}/>}
+                    {activeNav==="Kanban Board" && <KanbanBoardSection user={user} profileData={profileData} teamMembers={teamMembers} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId}/>}
+                    {activeNav==="Milestones" && <MilestonesSection user={user} profileData={profileData} teamMembers={teamMembers} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId}/>}
 
                     {activeNav==="Dashboard" && (<>
                         <div style={S.hero}>
@@ -1440,7 +1581,7 @@ const CandidateDashboard = () => {
                         </div>
                     </>)}
 
-                    {!["Dashboard","My Profile","Find Teammates","Team Members","Team Chat"].includes(activeNav) && (
+                    {!["Dashboard","My Profile","Find Teammates","Team Members","Team Chat","My Projects","Kanban Board","Milestones"].includes(activeNav) && (
                         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:340, color:"#94a3b8" }}>
                             <div style={{ fontSize:48, marginBottom:16 }}>🚧</div>
                             <div style={{ fontSize:18, fontWeight:700, color:"#374151", marginBottom:8 }}>{activeNav}</div>

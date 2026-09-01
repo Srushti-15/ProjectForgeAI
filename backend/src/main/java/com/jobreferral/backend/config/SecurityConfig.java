@@ -30,6 +30,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/profile/**").permitAll()
+                .requestMatchers("/api/team/**").permitAll()
+                .requestMatchers("/api/projects/**").permitAll()
                 .anyRequest().authenticated()
             );
         return http.build();
