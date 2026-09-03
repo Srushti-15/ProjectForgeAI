@@ -1,5 +1,6 @@
 package com.jobreferral.backend.controller;
 
+import com.jobreferral.backend.model.CandidateProfile;
 import com.jobreferral.backend.model.Project;
 import com.jobreferral.backend.model.Student;
 import com.jobreferral.backend.model.TeamConnection;
@@ -9,7 +10,9 @@ import com.jobreferral.backend.repository.ProjectTaskRepository;
 import com.jobreferral.backend.repository.StudentRepository;
 import com.jobreferral.backend.repository.TeamConnectionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -31,6 +34,7 @@ public class AdminController {
     @Autowired private ProjectTaskRepository taskRepo;
     @Autowired private CandidateProfileRepository profileRepo;
     @Autowired private TeamConnectionRepository teamConnectionRepo;
+    @Autowired private PasswordEncoder passwordEncoder;
 
     // ── GET /api/admin/dashboard ───────────────────────────────────────────
     @GetMapping("/dashboard")
@@ -146,10 +150,11 @@ public class AdminController {
         return ResponseEntity.ok(result);
     }
 
-    // ── GET /api/admin/users ───────────────────────────────────────────────
+    // ── GET /api/admin/users ─────────────────────────────────────────────────
     @GetMapping("/users")
     public ResponseEntity<?> getAllUsers() {
         List<Student> students = studentRepo.findAll();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy");
         List<Map<String, Object>> result = students.stream().map(s -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", s.getId());
@@ -159,10 +164,93 @@ public class AdminController {
             m.put("course", s.getCourse());
             m.put("graduationYear", s.getGraduationYear());
             m.put("role", s.getRole());
-            m.put("hasProfile", profileRepo.existsByEmail(s.getEmail()));
+            String st = (s.getStatus() != null && !s.getStatus().isBlank()) ? s.getStatus() : "active";
+            m.put("status", st);
+            m.put("joinedDate", s.getCreatedAt() != null ? s.getCreatedAt().format(fmt) : "Sep 01, 2026");
+            m.put("joinedRaw", s.getCreatedAt() != null ? s.getCreatedAt().toString() : "2026-09-01T00:00:00");
+
+            // Skills from candidate profile
+            boolean hasProfile = profileRepo.existsByEmail(s.getEmail());
+            m.put("hasProfile", hasProfile);
+            if (hasProfile) {
+                Optional<CandidateProfile> profOpt = profileRepo.findByEmail(s.getEmail());
+                if (profOpt.isPresent()) {
+                    CandidateProfile prof = profOpt.get();
+                    // Parse skills JSON array of objects [{name,level},...] → list of name strings
+                    List<String> skillNames = parseSkillNames(prof.getSkills());
+                    m.put("skills", skillNames);
+                    m.put("experienceLevel", prof.getExperienceLevel());
+                    m.put("availability", prof.getAvailability());
+                } else {
+                    m.put("skills", Collections.emptyList());
+                }
+            } else {
+                m.put("skills", Collections.emptyList());
+            }
+
+            // Project count
+            long projectCount = projectRepo.countProjectsForUser(s.getEmail());
+            m.put("projectCount", projectCount);
+
+            // Report count (pending flags / connection issues)
+            long reportCount = teamConnectionRepo.findByToEmailAndStatus(s.getEmail(), "pending").size();
+            m.put("reportCount", reportCount);
+            m.put("isVerified", hasProfile);
+
             return m;
         }).collect(Collectors.toList());
         return ResponseEntity.ok(result);
+    }
+
+    // ── POST /api/admin/users/invite ─────────────────────────────────────────
+    @PostMapping("/users/invite")
+    public ResponseEntity<?> inviteUser(@RequestBody Map<String, Object> req) {
+        String email = str(req, "email");
+        String fullName = str(req, "fullName");
+        String password = str(req, "password");
+        String college = str(req, "college", "");
+        String course = str(req, "course", "");
+        String graduationYear = str(req, "graduationYear", "");
+        String role = str(req, "role", "candidate");
+
+        if (email == null || fullName == null || password == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "fullName, email, and password are required"));
+        }
+        email = email.toLowerCase().trim();
+        if (studentRepo.existsByEmail(email)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "A user with this email already exists."));
+        }
+
+        Student s = Student.builder()
+                .fullName(fullName.trim())
+                .email(email)
+                .passwordHash(passwordEncoder.encode(password))
+                .college(college.trim())
+                .course(course.trim())
+                .graduationYear(graduationYear.trim())
+                .role(role.trim())
+                .status("active")
+                .createdAt(LocalDateTime.now())
+                .build();
+        studentRepo.save(s);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("message", "User created successfully.", "email", s.getEmail()));
+    }
+
+    // ── PATCH /api/admin/users/{id}/status ──────────────────────────────────
+    @PatchMapping("/users/{id}/status")
+    public ResponseEntity<?> updateUserStatus(@PathVariable Long id, @RequestBody Map<String, Object> req) {
+        Optional<Student> opt = studentRepo.findById(id);
+        if (opt.isEmpty()) return ResponseEntity.notFound().build();
+        String newStatus = str(req, "status");
+        if (newStatus == null || (!newStatus.equals("active") && !newStatus.equals("suspended"))) {
+            return ResponseEntity.badRequest().body(Map.of("error", "status must be 'active' or 'suspended'"));
+        }
+        Student s = opt.get();
+        s.setStatus(newStatus);
+        studentRepo.save(s);
+        return ResponseEntity.ok(Map.of("message", "Status updated", "status", newStatus));
     }
 
     // ── GET /api/admin/projects ────────────────────────────────────────────
@@ -194,7 +282,6 @@ public class AdminController {
     private List<Map<String, Object>> buildMonthlyGrowth(
             List<Student> students, List<Project> projects) {
 
-        // Build last 12 months
         List<Map<String, Object>> months = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
 
@@ -203,40 +290,28 @@ public class AdminController {
                     .withHour(0).withMinute(0).withSecond(0).withNano(0);
             LocalDateTime monthEnd = monthStart.plusMonths(1);
 
-            // Cumulative users registered up to end of this month
-            final LocalDateTime mEnd = monthEnd;
-            long userCount = students.stream()
-                    .filter(s -> true) // Student has no createdAt – count all for now
-                    .count();
-            // Since Student has no createdAt, we use a simpler approach:
-            // We can only show the total at the current month; for past months we approximate
-
-            // Count projects created by end of this month
             final LocalDateTime mEndFinal = monthEnd;
-            final LocalDateTime mStartFinal = monthStart;
+
+            // Cumulative users registered up to end of this month (using real createdAt)
+            long userCount = students.stream()
+                    .filter(s -> s.getCreatedAt() == null || s.getCreatedAt().isBefore(mEndFinal))
+                    .count();
+
+            // Cumulative projects created up to end of this month
             long projectsCreatedUpTo = projects.stream()
                     .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().isBefore(mEndFinal))
                     .count();
-            long usersThisMonth = students.size(); // Use total since no createdAt on student
 
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("month", monthStart.format(DateTimeFormatter.ofPattern("MMM")));
             m.put("year", monthStart.getYear());
-            // Approximate cumulative users (we don't have student createdAt, so distribute linearly)
-            m.put("users", approximateCumulativeUsers(students.size(), i));
+            m.put("users", userCount);
             m.put("projects", projectsCreatedUpTo);
             months.add(m);
         }
         return months;
     }
 
-    /** Linearly approximate cumulative users since Student has no createdAt column. */
-    private long approximateCumulativeUsers(long total, int monthsAgo) {
-        // monthsAgo=11 is oldest, monthsAgo=0 is current
-        // Assume linear growth: oldest month had ~(total / 12) * 1, current has total
-        int position = 12 - monthsAgo; // 1..12
-        return Math.round(total * ((double) position / 12.0));
-    }
 
     private List<Map<String, Object>> buildRecentActivity(
             List<Project> projects, List<TeamConnection> connections) {
@@ -317,5 +392,61 @@ public class AdminController {
     private String formatTimestamp(LocalDateTime dt) {
         if (dt == null) return "";
         return dt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy · HH:mm"));
+    }
+
+    /**
+     * Parses CandidateProfile skills JSON.
+     * Handles both [{\"name\":\"React\",\"level\":80},...] and [\"React\",\"Python\",...] formats.
+     */
+    private List<String> parseSkillNames(String skillsJson) {
+        if (skillsJson == null || skillsJson.isBlank() || skillsJson.equals("[]")) {
+            return Collections.emptyList();
+        }
+        List<String> names = new ArrayList<>();
+        try {
+            // Remove outer brackets
+            String inner = skillsJson.trim();
+            if (inner.startsWith("[")) inner = inner.substring(1);
+            if (inner.endsWith("]")) inner = inner.substring(0, inner.length() - 1);
+            inner = inner.trim();
+            if (inner.isEmpty()) return names;
+
+            // Split by objects (simple parser for [{...},{...}] or ["a","b"])
+            if (inner.startsWith("{")) {
+                // Object array: [{\"name\":\"React\",...},...]
+                String[] parts = inner.split("\\},\\s*\\{");
+                for (String part : parts) {
+                    // Extract "name" value
+                    int nameIdx = part.indexOf("\"name\"");
+                    if (nameIdx >= 0) {
+                        int colon = part.indexOf(":", nameIdx);
+                        if (colon >= 0) {
+                            int q1 = part.indexOf("\"", colon + 1);
+                            int q2 = part.indexOf("\"", q1 + 1);
+                            if (q1 >= 0 && q2 > q1) {
+                                names.add(part.substring(q1 + 1, q2));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // String array: [\"React\",\"Python\"]
+                String[] parts = inner.split(",");
+                for (String part : parts) {
+                    String cleaned = part.trim().replaceAll("^\"|\"$", "");
+                    if (!cleaned.isEmpty()) names.add(cleaned);
+                }
+            }
+        } catch (Exception ignored) {}
+        return names;
+    }
+
+    private String str(Map<String, Object> map, String key) {
+        return str(map, key, null);
+    }
+
+    private String str(Map<String, Object> map, String key, String defaultValue) {
+        Object v = map.get(key);
+        return (v != null && !v.toString().isBlank()) ? v.toString().trim() : defaultValue;
     }
 }

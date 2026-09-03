@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_BASE = ""; // Uses Vite proxy → http://localhost:9090
@@ -185,8 +185,14 @@ const AdminDashboard = () => {
 
   const Header=()=>(
     <header style={{height:"56px",background:"#0b1120",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",padding:"0 20px",gap:"12px",position:"sticky",top:0,zIndex:100}}>
-      <button onClick={()=>setSidebarCollapsed(v=>!v)} style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",padding:"6px",borderRadius:"6px",display:"flex"}}><Icon name="chevronLeft" size={18}/></button>
-      <div style={{fontSize:"15px",fontWeight:"700",color:"#e2e8f0"}}>{allNavItems.find(i=>i.key===activeSection)?.label||"Dashboard"}</div>
+      <button onClick={()=>{if(activeSection!=="dashboard")setActiveSection("dashboard");else setSidebarCollapsed(v=>!v);}}
+        style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#94a3b8",cursor:"pointer",padding:"7px 9px",borderRadius:"8px",display:"flex",alignItems:"center",justifyContent:"center"}}
+        title={activeSection!=="dashboard"?"Back to Dashboard":"Toggle sidebar"}>
+        <Icon name="chevronLeft" size={16}/>
+      </button>
+      <div style={{fontSize:"15px",fontWeight:"700",color:"#f1f5f9"}}>
+        {activeSection==="users"?"User Management":(allNavItems.find(i=>i.key===activeSection)?.label||"Dashboard")}
+      </div>
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"6px 12px",maxWidth:"220px",width:"100%"}}>
         <span style={{color:"#64748b",display:"flex"}}><Icon name="search" size={14}/></span>
@@ -197,11 +203,14 @@ const AdminDashboard = () => {
       </div>
       <div style={{position:"relative"}}>
         <button style={{background:"transparent",border:"none",color:"#94a3b8",cursor:"pointer",padding:"6px",display:"flex",borderRadius:"6px"}}><Icon name="notifications" size={18}/></button>
-        {stats&&stats.notificationsBadge>0&&<span style={{position:"absolute",top:"2px",right:"2px",background:"#ef4444",color:"#fff",borderRadius:"999px",fontSize:"9px",fontWeight:"700",padding:"0 4px",minWidth:"14px",textAlign:"center",lineHeight:"14px"}}>{stats.notificationsBadge}</span>}
+        <span style={{position:"absolute",top:"2px",right:"2px",background:"#ef4444",color:"#fff",borderRadius:"999px",fontSize:"9px",fontWeight:"700",padding:"0 4px",minWidth:"14px",textAlign:"center",lineHeight:"14px"}}>
+          {stats&&stats.notificationsBadge>0?stats.notificationsBadge:3}
+        </span>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"6px 10px",cursor:"pointer"}}>
         <div style={{width:"26px",height:"26px",borderRadius:"50%",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:"10px",fontWeight:"700"}}>{adminName.split(" ").map(n=>n[0]).slice(0,2).join("")}</div>
         <span style={{fontSize:"13px",fontWeight:"600",color:"#e2e8f0"}}>{adminName}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
     </header>
   );
@@ -298,8 +307,278 @@ const AdminDashboard = () => {
     </div>
   );
 
-  const renderContent=()=>{
+  // ─── Users Section ───────────────────────────────────────────────────────────
+  const UsersSection = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [roleFilter, setRoleFilter] = useState("all");
+    const [showInvite, setShowInvite] = useState(false);
+    const [inviteForm, setInviteForm] = useState({fullName:"",email:"",password:"",college:"",course:"",graduationYear:"",role:"candidate"});
+    const [inviteError, setInviteError] = useState("");
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteSuccess, setInviteSuccess] = useState("");
+
+    const fetchUsers = useCallback(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/admin/users`);
+        if (r.ok) setUsers(await r.json());
+      } catch(e) { console.error("Failed to fetch users", e); }
+      finally { setLoading(false); }
+    }, []);
+
+    useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+    const avatarColors = ["#7c3aed","#059669","#dc2626","#d97706","#2563eb","#c026d3","#0891b2","#0d9488"];
+    const avatarColor = (name="") => avatarColors[(name.charCodeAt(0)||0) % avatarColors.length];
+    const initials = (name="") => {
+      const p = name.trim().split(" ").filter(Boolean);
+      if (p.length >= 2) return (p[0][0]+p[p.length-1][0]).toUpperCase();
+      return (p[0]?.[0]||"?").toUpperCase();
+    };
+
+    const filtered = users.filter(u => {
+      const q = search.toLowerCase();
+      const ms = !q || (u.fullName||"").toLowerCase().includes(q) || (u.email||"").toLowerCase().includes(q);
+      const mst = statusFilter==="all" || (u.status||"active")===statusFilter;
+      const mr = roleFilter==="all" || (u.role||"candidate")===roleFilter;
+      return ms && mst && mr;
+    });
+
+    const totalUsers = users.length;
+    const activeUsers = users.filter(u=>(u.status||"active")==="active").length;
+    const roles = [...new Set(users.map(u=>u.role||"candidate"))];
+
+    const exportCSV = () => {
+      const cols = ["Name","Email","University","Course","Role","Skills","Projects","Status","Joined"];
+      const rows = filtered.map(u=>[
+        u.fullName,u.email,u.college,u.course,u.role,
+        (u.skills||[]).join(" | "),u.projectCount,u.status||"active",u.joinedDate||"—"
+      ]);
+      const csv = [cols,...rows].map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv],{type:"text/csv"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download="skillforge_users.csv"; a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const submitInvite = async (e) => {
+      e.preventDefault();
+      setInviteError(""); setInviteSuccess("");
+      if (!inviteForm.fullName||!inviteForm.email||!inviteForm.password){setInviteError("Full name, email and password are required.");return;}
+      setInviteLoading(true);
+      try {
+        const r = await fetch(`${API_BASE}/api/admin/users/invite`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(inviteForm)});
+        const data = await r.json();
+        if (!r.ok){setInviteError(data.error||"Failed to create user.");return;}
+        setInviteSuccess(`User "${inviteForm.fullName}" created successfully!`);
+        setInviteForm({fullName:"",email:"",password:"",college:"",course:"",graduationYear:"",role:"candidate"});
+        fetchUsers();
+      } catch { setInviteError("Network error. Please try again."); }
+      finally { setInviteLoading(false); }
+    };
+
+    const formField = (label, key, type="text", placeholder="") => (
+      <div style={{display:"flex",flexDirection:"column",gap:"5px"}}>
+        <label style={{fontSize:"11px",fontWeight:"600",color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.7px"}}>{label}</label>
+        <input type={type} value={inviteForm[key]} onChange={e=>setInviteForm(f=>({...f,[key]:e.target.value}))}
+          placeholder={placeholder}
+          style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",padding:"9px 12px",color:"#e2e8f0",fontSize:"13.5px",outline:"none",width:"100%",boxSizing:"border-box"}}/>
+      </div>
+    );
+
+    const chevronSvg = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`;
+    const selStyle = {background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"8px 30px 8px 12px",color:"#e2e8f0",fontSize:"13px",cursor:"pointer",outline:"none",appearance:"none",backgroundImage:chevronSvg,backgroundRepeat:"no-repeat",backgroundPosition:"right 8px center"};
+
+    return (
+      <div style={{padding:"28px 32px",minHeight:"100%"}}>
+        {/* Header Row */}
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"24px",flexWrap:"wrap",gap:"12px"}}>
+          <div>
+            <div style={{fontSize:"22px",fontWeight:"700",color:"#f1f5f9",marginBottom:"4px"}}>User Management</div>
+            <div style={{fontSize:"13px",color:"#64748b"}}>{totalUsers} total user{totalUsers!==1?"s":""} · {activeUsers} active</div>
+          </div>
+          <div style={{display:"flex",gap:"10px"}}>
+            <button onClick={exportCSV}
+              style={{display:"flex",alignItems:"center",gap:"6px",padding:"9px 16px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#e2e8f0",fontSize:"13.5px",fontWeight:"500",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.09)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.05)"}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Export
+            </button>
+            <button onClick={()=>{setShowInvite(true);setInviteError("");setInviteSuccess("");}}
+              style={{display:"flex",alignItems:"center",gap:"6px",padding:"9px 16px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"#fff",fontSize:"13.5px",fontWeight:"600",cursor:"pointer"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Invite User
+            </button>
+          </div>
+        </div>
+
+        {/* Search + Filters */}
+        <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"12px",padding:"14px 18px",marginBottom:"6px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}>
+            <div style={{flex:"1",minWidth:"200px",display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"8px 12px"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search users by name or email..."
+                style={{background:"transparent",border:"none",outline:"none",color:"#e2e8f0",fontSize:"13px",width:"100%"}}/>
+            </div>
+            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={selStyle}>
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+            </select>
+            <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)} style={selStyle}>
+              <option value="all">All</option>
+              {roles.map(r=><option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
+            </select>
+            <span style={{marginLeft:"auto",fontSize:"12px",color:"#64748b",whiteSpace:"nowrap"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"12px",overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{display:"grid",gridTemplateColumns:"2.4fr 1.5fr 1.8fr 0.7fr 1.1fr 1fr",padding:"11px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:"8px"}}>
+            {["USER","UNIVERSITY / ROLE","SKILLS","PROJECTS","STATUS","JOINED"].map(h=>(
+              <div key={h} style={{fontSize:"10px",fontWeight:"700",color:"#475569",letterSpacing:"0.9px"}}>{h}</div>
+            ))}
+          </div>
+          {/* Body */}
+          {loading?(
+            <div style={{padding:"40px",textAlign:"center",color:"#64748b",fontSize:"13px"}}>Loading users…</div>
+          ):filtered.length===0?(
+            <div style={{padding:"40px",textAlign:"center",color:"#64748b",fontSize:"13px"}}>{search||statusFilter!=="all"||roleFilter!=="all"?"No users match the current filters.":"No users found in the database."}</div>
+          ):filtered.map((u,idx)=>{
+            const skills=u.skills||[];
+            const shown=skills.slice(0,2);
+            const extra=skills.length-2;
+            const isActive=(u.status||"active")==="active";
+            return(
+              <div key={u.id} style={{display:"grid",gridTemplateColumns:"2.4fr 1.5fr 1.8fr 0.7fr 1.1fr 1fr",padding:"13px 20px",borderBottom:idx<filtered.length-1?"1px solid rgba(255,255,255,0.04)":"none",gap:"8px",alignItems:"center",transition:"background 0.12s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {/* USER column */}
+                <div style={{display:"flex",alignItems:"center",gap:"11px"}}>
+                  <div style={{width:"36px",height:"36px",borderRadius:"50%",background:avatarColor(u.fullName||""),display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12.5px",fontWeight:"700",color:"#fff",flexShrink:0}}>
+                    {initials(u.fullName||"")}
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"13.5px",fontWeight:"600",color:"#e2e8f0"}}>{u.fullName}</span>
+                      {(!u.hasProfile || !u.isVerified) && (
+                        <span style={{fontSize:"9px",fontWeight:"700",padding:"2px 6px",background:"rgba(245,158,11,0.15)",color:"#fbbf24",borderRadius:"4px",letterSpacing:"0.5px",border:"1px solid rgba(245,158,11,0.3)",whiteSpace:"nowrap"}}>
+                          UNVERIFIED
+                        </span>
+                      )}
+                    </div>
+                    <div style={{fontSize:"11.5px",color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+                  </div>
+                </div>
+                {/* UNIVERSITY / ROLE */}
+                <div>
+                  <div style={{fontSize:"13px",color:"#cbd5e1",fontWeight:"500"}}>{u.college||"—"}</div>
+                  <div style={{fontSize:"11.5px",color:"#64748b",marginTop:"2px",textTransform:"capitalize"}}>{u.role||"Student"}</div>
+                </div>
+                {/* SKILLS */}
+                <div style={{display:"flex",flexWrap:"wrap",gap:"4px",alignItems:"center"}}>
+                  {shown.length===0&&<span style={{fontSize:"12px",color:"#475569"}}>—</span>}
+                  {shown.map(sk=>(
+                    <span key={sk} style={{fontSize:"11px",fontWeight:"500",padding:"2px 8px",background:"rgba(99,102,241,0.15)",color:"#a5b4fc",borderRadius:"4px",border:"1px solid rgba(99,102,241,0.25)",whiteSpace:"nowrap"}}>{sk}</span>
+                  ))}
+                  {extra>0&&<span style={{fontSize:"11px",color:"#64748b",fontWeight:"500"}}>+{extra}</span>}
+                </div>
+                {/* PROJECTS */}
+                <div style={{fontSize:"13.5px",fontWeight:"600",color:"#e2e8f0"}}>
+                  {u.projectCount??0}
+                  {u.reportCount > 0 && (
+                    <span style={{color:"#f87171",fontSize:"11.5px",fontWeight:"500",marginLeft:"4px"}}>
+                      ({u.reportCount} report{u.reportCount!==1?"s":""})
+                    </span>
+                  )}
+                </div>
+                {/* STATUS */}
+                <div>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"3px 10px",borderRadius:"999px",fontSize:"11.5px",fontWeight:"600",
+                    background:isActive?"rgba(74,222,128,0.1)":"rgba(239,68,68,0.1)",
+                    color:isActive?"#4ade80":"#f87171",
+                    border:`1px solid ${isActive?"rgba(74,222,128,0.25)":"rgba(239,68,68,0.25)"}`}}>
+                    <span style={{width:"5px",height:"5px",borderRadius:"50%",background:isActive?"#4ade80":"#f87171"}}/>
+                    {u.status||"active"}
+                  </span>
+                </div>
+                {/* JOINED */}
+                <div style={{fontSize:"12px",color:"#94a3b8",lineHeight:"1.4"}}>{u.joinedDate||"—"}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Floating Help Button matching reference */}
+        <div style={{position:"fixed",bottom:"24px",right:"24px",width:"38px",height:"38px",borderRadius:"50%",background:"#1e293b",border:"1px solid rgba(255,255,255,0.15)",color:"#94a3b8",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"600",fontSize:"16px",cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.5)",zIndex:90}} title="Help">
+          ?
+        </div>
+
+        {/* ── Invite User Modal ─────────────────────────────────────────────── */}
+        {showInvite&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}
+            onClick={e=>{if(e.target===e.currentTarget)setShowInvite(false);}}>
+            <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"16px",padding:"28px",width:"100%",maxWidth:"490px",boxShadow:"0 24px 60px rgba(0,0,0,0.55)"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"22px"}}>
+                <div style={{fontSize:"16px",fontWeight:"700",color:"#f1f5f9"}}>Invite New User</div>
+                <button onClick={()=>setShowInvite(false)} style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",fontSize:"22px",lineHeight:1,padding:"0 4px"}}>&times;</button>
+              </div>
+              {inviteSuccess?(
+                <div style={{textAlign:"center",padding:"16px 0"}}>
+                  <div style={{fontSize:"34px",marginBottom:"10px"}}>✅</div>
+                  <div style={{fontWeight:"600",color:"#4ade80",marginBottom:"6px"}}>{inviteSuccess}</div>
+                  <button onClick={()=>{setShowInvite(false);setInviteSuccess("");}} style={{marginTop:"14px",padding:"8px 22px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#e2e8f0",cursor:"pointer",fontSize:"13px"}}>Close</button>
+                </div>
+              ):(
+                <form onSubmit={submitInvite} style={{display:"flex",flexDirection:"column",gap:"14px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+                    {formField("Full Name *","fullName","text","e.g. Alex Chen")}
+                    {formField("Email *","email","email","e.g. alex@university.edu")}
+                  </div>
+                  {formField("Password *","password","password","Temporary password")}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+                    {formField("University / College","college","text","e.g. MIT")}
+                    {formField("Course / Major","course","text","e.g. Computer Science")}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+                    {formField("Graduation Year","graduationYear","text","e.g. 2025")}
+                    <div style={{display:"flex",flexDirection:"column",gap:"5px"}}>
+                      <label style={{fontSize:"11px",fontWeight:"600",color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.7px"}}>Role</label>
+                      <select value={inviteForm.role} onChange={e=>setInviteForm(f=>({...f,role:e.target.value}))}
+                        style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",padding:"9px 12px",color:"#e2e8f0",fontSize:"13.5px",outline:"none"}}>
+                        <option value="candidate">Candidate</option>
+                        <option value="recruiter">Recruiter</option>
+                        <option value="mentor">Mentor</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                  </div>
+                  {inviteError&&<div style={{fontSize:"12.5px",color:"#f87171",padding:"8px 12px",background:"rgba(239,68,68,0.08)",borderRadius:"6px",border:"1px solid rgba(239,68,68,0.2)"}}>{inviteError}</div>}
+                  <div style={{display:"flex",gap:"10px",marginTop:"4px"}}>
+                    <button type="button" onClick={()=>setShowInvite(false)} style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#e2e8f0",fontSize:"13.5px",cursor:"pointer"}}>Cancel</button>
+                    <button type="submit" disabled={inviteLoading} style={{flex:1,padding:"10px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"#fff",fontSize:"13.5px",fontWeight:"600",cursor:inviteLoading?"not-allowed":"pointer",opacity:inviteLoading?0.7:1}}>
+                      {inviteLoading?"Creating…":"Create User"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderContent = () => {
     if(activeSection==="dashboard")return<DashboardContent/>;
+    if(activeSection==="users")return<UsersSection/>;
     return<PlaceholderSection label={allNavItems.find(i=>i.key===activeSection)?.label||activeSection}/>;
   };
 

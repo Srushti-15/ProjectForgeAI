@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "students")
@@ -39,4 +40,17 @@ public class Student {
     @Column(nullable = false)
     @Builder.Default
     private String role = "candidate";
+
+    /** active | suspended */
+    @Column(nullable = false)
+    @Builder.Default
+    private String status = "active";
+
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void onCreate() {
+        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (status == null) status = "active";
+    }
 }

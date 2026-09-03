@@ -15,4 +15,8 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
      */
     @Query("SELECT p FROM Project p WHERE p.leaderEmail = :email OR p.memberEmails LIKE CONCAT('%', :email, '%') ORDER BY p.createdAt DESC")
     List<Project> findProjectsForUser(@Param("email") String email);
+
+    /** Count projects for a user (leader or member). */
+    @Query("SELECT COUNT(p) FROM Project p WHERE p.leaderEmail = :email OR p.memberEmails LIKE CONCAT('%', :email, '%')")
+    long countProjectsForUser(@Param("email") String email);
 }
