@@ -48,6 +48,16 @@ public class Project {
     @Column(name = "member_emails", columnDefinition = "TEXT")
     private String memberEmails;
 
+    /** approved | pending | rejected */
+    @Column(name = "verification_status", length = 50)
+    private String verificationStatus = "pending";
+
+    @Column(name = "team_capacity")
+    private Integer teamCapacity = 5;
+
+    @Column(name = "report_count")
+    private Integer reportCount = 0;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -55,6 +65,9 @@ public class Project {
     public void onCreate() {
         createdAt = updatedAt = LocalDateTime.now();
         if (status == null || status.isBlank()) status = "active";
+        if (verificationStatus == null || verificationStatus.isBlank()) verificationStatus = "pending";
+        if (teamCapacity == null) teamCapacity = 5;
+        if (reportCount == null) reportCount = 0;
     }
 
     @PreUpdate
@@ -85,6 +98,12 @@ public class Project {
     public void setDueDate(String dueDate)       { this.dueDate = dueDate; }
     public String getMemberEmails()              { return memberEmails; }
     public void setMemberEmails(String me)       { this.memberEmails = me; }
+    public String getVerificationStatus()        { return verificationStatus; }
+    public void setVerificationStatus(String vs) { this.verificationStatus = vs; }
+    public Integer getTeamCapacity()             { return teamCapacity; }
+    public void setTeamCapacity(Integer tc)      { this.teamCapacity = tc; }
+    public Integer getReportCount()              { return reportCount; }
+    public void setReportCount(Integer rc)       { this.reportCount = rc; }
     public LocalDateTime getCreatedAt()          { return createdAt; }
     public LocalDateTime getUpdatedAt()          { return updatedAt; }
 }

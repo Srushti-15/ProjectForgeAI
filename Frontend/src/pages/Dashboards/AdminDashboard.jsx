@@ -191,7 +191,7 @@ const AdminDashboard = () => {
         <Icon name="chevronLeft" size={16}/>
       </button>
       <div style={{fontSize:"15px",fontWeight:"700",color:"#f1f5f9"}}>
-        {activeSection==="users"?"User Management":(allNavItems.find(i=>i.key===activeSection)?.label||"Dashboard")}
+        {activeSection==="users"?"User Management":activeSection==="projects"?"Project Management":(allNavItems.find(i=>i.key===activeSection)?.label||"Dashboard")}
       </div>
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"6px 12px",maxWidth:"220px",width:"100%"}}>
@@ -576,9 +576,497 @@ const AdminDashboard = () => {
     );
   };
 
+  // ─── Projects Section ────────────────────────────────────────────────────────
+  const ProjectsSection = () => {
+    const [projects, setProjects] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [search, setSearch] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [verificationFilter, setVerificationFilter] = useState("all");
+    const [selectedProject, setSelectedProject] = useState(null);
+    const [updatingVerification, setUpdatingVerification] = useState(false);
+    const [actionMsg, setActionMsg] = useState("");
+
+    const fetchProjects = useCallback(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`${API_BASE}/api/admin/projects`);
+        if (!r.ok) throw new Error("Failed to fetch projects data from server");
+        const data = await r.json();
+        setProjects(Array.isArray(data) ? data : (data.value || []));
+        setError(null);
+      } catch (err) {
+        console.error("Failed to fetch projects", err);
+        setError(err.message || "Failed to load projects");
+      } finally {
+        setLoading(false);
+      }
+    }, []);
+
+    useEffect(() => {
+      fetchProjects();
+    }, [fetchProjects]);
+
+    const handleUpdateVerification = async (projectId, newStatus) => {
+      setUpdatingVerification(true);
+      setActionMsg("");
+      try {
+        const r = await fetch(`${API_BASE}/api/admin/projects/${projectId}/verification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ verificationStatus: newStatus })
+        });
+        if (!r.ok) throw new Error("Could not update verification status");
+
+        // Optimistically update local project state
+        setProjects(prev => prev.map(p => p.id === projectId ? { ...p, verificationStatus: newStatus } : p));
+        if (selectedProject && selectedProject.id === projectId) {
+          setSelectedProject(prev => ({ ...prev, verificationStatus: newStatus }));
+        }
+        setActionMsg(`Project status updated to ${newStatus}`);
+        fetchStats(); // Update dashboard header and KPI counts
+      } catch (e) {
+        setActionMsg("Failed to update status: " + e.message);
+      } finally {
+        setUpdatingVerification(false);
+      }
+    };
+
+    const avatarColors = ["#7c3aed","#059669","#dc2626","#d97706","#2563eb","#c026d3","#0891b2","#0d9488"];
+    const avatarColor = (name="") => avatarColors[(name.charCodeAt(0)||0) % avatarColors.length];
+    const initials = (name="") => {
+      const p = name.trim().split(" ").filter(Boolean);
+      if (p.length >= 2) return (p[0][0]+p[p.length-1][0]).toUpperCase();
+      return (p[0]?.[0]||"?").toUpperCase();
+    };
+
+    const totalProjects = projects.length;
+    const pendingVerifications = projects.filter(p => (p.verificationStatus || "").toLowerCase() === "pending").length;
+
+    // Filter projects dynamically based on real DB records
+    const filtered = projects.filter(p => {
+      const q = search.toLowerCase().trim();
+      const pName = (p.name || "").toLowerCase();
+      const cName = (p.leaderName || "").toLowerCase();
+      const cEmail = (p.leaderEmail || "").toLowerCase();
+      const cat = (p.category || "").toLowerCase();
+      const sk = (p.skills || []).map(s => s.toLowerCase()).join(" ");
+
+      const matchSearch = !q || pName.includes(q) || cName.includes(q) || cEmail.includes(q) || cat.includes(q) || sk.includes(q);
+      const matchStatus = statusFilter === "all" || (p.status || "active").toLowerCase() === statusFilter.toLowerCase();
+      const matchVerif = verificationFilter === "all" || (p.verificationStatus || "approved").toLowerCase() === verificationFilter.toLowerCase();
+
+      return matchSearch && matchStatus && matchVerif;
+    });
+
+    const exportCSV = () => {
+      const cols = ["Project Name","Category","Creator","Creator Email","Team","Tech Stack","Status","Verification","Reports","Created Date"];
+      const rows = filtered.map(p => [
+        p.name || "",
+        p.category || "General",
+        p.leaderName || p.leaderEmail || "",
+        p.leaderEmail || "",
+        p.teamDisplay || `${p.memberCount || 1}/${p.teamCapacity || 5}`,
+        (p.skills || []).join(" | "),
+        p.status || "active",
+        p.verificationStatus || "approved",
+        p.reports || 0,
+        p.createdDate || p.createdAt || "—"
+      ]);
+      const csv = [cols, ...rows].map(r => r.map(c => `"${String(c || "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "skillforge_projects.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const chevronSvg = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`;
+    const selStyle = {
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: "8px",
+      padding: "8px 30px 8px 12px",
+      color: "#e2e8f0",
+      fontSize: "13px",
+      cursor: "pointer",
+      outline: "none",
+      appearance: "none",
+      backgroundImage: chevronSvg,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "right 8px center"
+    };
+
+    const renderStatusBadge = (st = "active") => {
+      const s = st.toLowerCase();
+      let color = "#4ade80", bg = "rgba(74,222,128,0.1)", border = "rgba(74,222,128,0.25)";
+      if (s === "review") {
+        color = "#fbbf24"; bg = "rgba(245,158,11,0.1)"; border = "rgba(245,158,11,0.25)";
+      } else if (s === "completed") {
+        color = "#818cf8"; bg = "rgba(99,102,241,0.1)"; border = "rgba(99,102,241,0.25)";
+      }
+      return (
+        <span style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"3px 10px",borderRadius:"999px",fontSize:"11.5px",fontWeight:"600",background:bg,color,border:`1px solid ${border}`}}>
+          <span style={{width:"5px",height:"5px",borderRadius:"50%",background:color}}/>
+          {s}
+        </span>
+      );
+    };
+
+    const renderVerificationBadge = (ver = "approved") => {
+      const v = ver.toLowerCase();
+      let color = "#4ade80", bg = "rgba(74,222,128,0.1)", border = "rgba(74,222,128,0.25)";
+      if (v === "pending") {
+        color = "#fbbf24"; bg = "rgba(245,158,11,0.1)"; border = "rgba(245,158,11,0.25)";
+      } else if (v === "rejected") {
+        color = "#f87171"; bg = "rgba(239,68,68,0.1)"; border = "rgba(239,68,68,0.25)";
+      }
+      return (
+        <span style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"3px 10px",borderRadius:"999px",fontSize:"11.5px",fontWeight:"600",background:bg,color,border:`1px solid ${border}`}}>
+          <span style={{width:"5px",height:"5px",borderRadius:"50%",background:color}}/>
+          {v}
+        </span>
+      );
+    };
+
+    return (
+      <div style={{padding:"28px 32px",minHeight:"100%"}}>
+        {/* Page Heading & Subtitle & Action */}
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"24px",flexWrap:"wrap",gap:"12px"}}>
+          <div>
+            <div style={{fontSize:"24px",fontWeight:"800",color:"#f1f5f9",marginBottom:"4px",letterSpacing:"-0.3px"}}>
+              Project Management
+            </div>
+            <div style={{fontSize:"13.5px",color:"#64748b"}}>
+              {totalProjects} total project{totalProjects!==1?"s":""} · {pendingVerifications} pending verification
+            </div>
+          </div>
+          <button onClick={exportCSV}
+            style={{display:"flex",alignItems:"center",gap:"8px",padding:"9px 16px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#e2e8f0",fontSize:"13.5px",fontWeight:"500",cursor:"pointer",transition:"all 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.09)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.05)"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export CSV
+          </button>
+        </div>
+
+        {/* Search & Filter Bar */}
+        <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"12px",padding:"14px 18px",marginBottom:"6px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap"}}>
+            {/* Search Input */}
+            <div style={{flex:"1",minWidth:"220px",display:"flex",alignItems:"center",gap:"10px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"8px 12px"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                value={search}
+                onChange={e=>setSearch(e.target.value)}
+                placeholder="Search projects or creators..."
+                style={{background:"transparent",border:"none",outline:"none",color:"#e2e8f0",fontSize:"13px",width:"100%"}}
+              />
+              {search && (
+                <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"14px",padding:"0 2px"}}>×</button>
+              )}
+            </div>
+
+            {/* Status Filter */}
+            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={selStyle}>
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="review">Review</option>
+              <option value="completed">Completed</option>
+            </select>
+
+            {/* Verification Filter */}
+            <select value={verificationFilter} onChange={e=>setVerificationFilter(e.target.value)} style={selStyle}>
+              <option value="all">All</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+            </select>
+
+            {/* Results Counter */}
+            <span style={{marginLeft:"auto",fontSize:"12px",color:"#64748b",whiteSpace:"nowrap"}}>
+              {filtered.length} result{filtered.length!==1?"s":""}
+            </span>
+          </div>
+        </div>
+
+        {/* Projects Table */}
+        <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"12px",overflow:"hidden"}}>
+          {/* Table Header */}
+          <div style={{display:"grid",gridTemplateColumns:"2.5fr 1.6fr 0.8fr 1.8fr 1.1fr 1.2fr 0.9fr 0.8fr",padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:"10px",alignItems:"center"}}>
+            {["PROJECT","CREATOR","TEAM","TECH STACK","STATUS","VERIFICATION","REPORTS","ACTION"].map(h=>(
+              <div key={h} style={{fontSize:"10.5px",fontWeight:"700",color:"#475569",letterSpacing:"0.9px"}}>{h}</div>
+            ))}
+          </div>
+
+          {/* Table Body */}
+          {loading ? (
+            <div style={{padding:"50px",textAlign:"center",color:"#64748b",fontSize:"13px"}}>
+              <div style={{fontSize:"28px",marginBottom:"12px"}}>⏳</div>
+              Loading projects from database…
+            </div>
+          ) : error ? (
+            <div style={{padding:"50px",textAlign:"center",color:"#f87171",fontSize:"13px"}}>
+              <div style={{fontSize:"28px",marginBottom:"10px"}}>⚠️</div>
+              <div style={{fontWeight:"600",marginBottom:"6px"}}>Failed to load projects</div>
+              <div style={{color:"#64748b",fontSize:"12px",marginBottom:"14px"}}>{error}</div>
+              <button onClick={fetchProjects} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 18px",cursor:"pointer",fontWeight:"600",fontSize:"13px"}}>
+                Retry
+              </button>
+            </div>
+          ) : totalProjects === 0 ? (
+            <div style={{padding:"60px 20px",textAlign:"center",color:"#64748b"}}>
+              <div style={{fontSize:"36px",marginBottom:"12px"}}>📁</div>
+              <div style={{fontSize:"15px",fontWeight:"600",color:"#e2e8f0",marginBottom:"6px"}}>No projects in database</div>
+              <div style={{fontSize:"12.5px",maxWidth:"380px",margin:"0 auto"}}>No collaborative projects have been created yet. As soon as users add projects, they will automatically reflect here.</div>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{padding:"50px 20px",textAlign:"center",color:"#64748b"}}>
+              <div style={{fontSize:"32px",marginBottom:"10px"}}>🔍</div>
+              <div style={{fontSize:"14px",fontWeight:"600",color:"#e2e8f0",marginBottom:"4px"}}>No matching projects</div>
+              <div style={{fontSize:"12px"}}>No projects match your active search and filter criteria.</div>
+            </div>
+          ) : (
+            filtered.map((p, idx) => {
+              const skills = p.skills || [];
+              const shownSkills = skills.slice(0, 2);
+              const extraSkills = skills.length - 2;
+              const rep = p.reports || 0;
+
+              return (
+                <div key={p.id}
+                  style={{display:"grid",gridTemplateColumns:"2.5fr 1.6fr 0.8fr 1.8fr 1.1fr 1.2fr 0.9fr 0.8fr",padding:"14px 20px",borderBottom:idx<filtered.length-1?"1px solid rgba(255,255,255,0.04)":"none",gap:"10px",alignItems:"center",transition:"background 0.12s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+
+                  {/* PROJECT column */}
+                  <div style={{display:"flex",alignItems:"center",gap:"12px",minWidth:0}}>
+                    <div style={{width:"38px",height:"38px",borderRadius:"10px",background:"linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18))",border:"1px solid rgba(139,92,246,0.25)",display:"flex",alignItems:"center",justifyContent:"center",color:"#a78bfa",flexShrink:0}}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                      </svg>
+                    </div>
+                    <div style={{minWidth:0,overflow:"hidden"}}>
+                      <div style={{fontSize:"13.5px",fontWeight:"600",color:"#e2e8f0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={p.name}>
+                        {p.name}
+                      </div>
+                      <div style={{fontSize:"11.5px",color:"#64748b",marginTop:"2px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                        {p.category || "General"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CREATOR column */}
+                  <div style={{display:"flex",alignItems:"center",gap:"10px",minWidth:0}}>
+                    <div style={{width:"32px",height:"32px",borderRadius:"50%",background:avatarColor(p.leaderName||p.leaderEmail||""),display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11.5px",fontWeight:"700",color:"#fff",flexShrink:0}}>
+                      {initials(p.leaderName||p.leaderEmail||"")}
+                    </div>
+                    <div style={{fontSize:"13px",color:"#cbd5e1",fontWeight:"500",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={p.leaderName || p.leaderEmail}>
+                      {p.leaderName || p.leaderEmail}
+                    </div>
+                  </div>
+
+                  {/* TEAM column */}
+                  <div style={{fontSize:"13px",color:"#cbd5e1",fontWeight:"500"}}>
+                    {p.teamDisplay || `${p.memberCount || 1}/${p.teamCapacity || 5}`}
+                  </div>
+
+                  {/* TECH STACK column */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"4px",alignItems:"center"}}>
+                    {shownSkills.length === 0 && <span style={{fontSize:"12px",color:"#475569"}}>—</span>}
+                    {shownSkills.map(sk => (
+                      <span key={sk} style={{fontSize:"11px",fontWeight:"500",padding:"2px 8px",background:"rgba(99,102,241,0.12)",color:"#a5b4fc",borderRadius:"5px",border:"1px solid rgba(99,102,241,0.22)",whiteSpace:"nowrap"}}>
+                        {sk}
+                      </span>
+                    ))}
+                    {extraSkills > 0 && (
+                      <span style={{fontSize:"10.5px",color:"#64748b",fontWeight:"600",padding:"2px 4px"}}>
+                        +{extraSkills}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* STATUS column */}
+                  <div>
+                    {renderStatusBadge(p.status)}
+                  </div>
+
+                  {/* VERIFICATION column */}
+                  <div>
+                    {renderVerificationBadge(p.verificationStatus)}
+                  </div>
+
+                  {/* REPORTS column */}
+                  <div>
+                    <span style={{fontSize:"13px",fontWeight:rep>0?"700":"400",color:rep>1?"#f87171":rep===1?"#fbbf24":"#64748b"}}>
+                      {rep}
+                    </span>
+                  </div>
+
+                  {/* ACTION column */}
+                  <div>
+                    <button
+                      onClick={()=>{setSelectedProject(p);setActionMsg("");}}
+                      title="View project details & verification"
+                      style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"6px 8px",color:"#818cf8",cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,92,246,0.2)";e.currentTarget.style.color="#c4b5fd";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.04)";e.currentTarget.style.color="#818cf8";}}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Floating Help Button matching reference */}
+        <div style={{position:"fixed",bottom:"24px",right:"24px",width:"38px",height:"38px",borderRadius:"50%",background:"#1e293b",border:"1px solid rgba(255,255,255,0.15)",color:"#94a3b8",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"600",fontSize:"16px",cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.5)",zIndex:90}} title="Help">
+          ?
+        </div>
+
+        {/* ── Project Details & Verification Modal ────────────────────── */}
+        {selectedProject && (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"16px"}}
+            onClick={e=>{if(e.target===e.currentTarget)setSelectedProject(null);}}>
+            <div style={{background:"#131929",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"16px",padding:"28px",width:"100%",maxWidth:"560px",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 60px rgba(0,0,0,0.55)",color:"#e2e8f0"}}>
+
+              {/* Modal Header */}
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"18px",gap:"12px"}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                    <span style={{fontSize:"18px",fontWeight:"700",color:"#f1f5f9"}}>{selectedProject.name}</span>
+                    <span style={{fontSize:"11px",background:"rgba(139,92,246,0.15)",color:"#c4b5fd",padding:"2px 8px",borderRadius:"6px",border:"1px solid rgba(139,92,246,0.3)"}}>
+                      {selectedProject.category || "General"}
+                    </span>
+                  </div>
+                  <div style={{fontSize:"12px",color:"#64748b",marginTop:"4px"}}>
+                    Created {selectedProject.createdDate || "recently"} · Due {selectedProject.dueDate || "Flexible"}
+                  </div>
+                </div>
+                <button onClick={()=>setSelectedProject(null)} style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",fontSize:"22px",lineHeight:1,padding:"0 4px"}}>&times;</button>
+              </div>
+
+              {/* Status & Verification Badges row */}
+              <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:"rgba(255,255,255,0.03)",borderRadius:"10px",marginBottom:"16px"}}>
+                <div>
+                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:"700",textTransform:"uppercase",marginBottom:"4px"}}>Project Status</div>
+                  {renderStatusBadge(selectedProject.status)}
+                </div>
+                <div style={{height:"24px",width:"1px",background:"rgba(255,255,255,0.06)"}}/>
+                <div>
+                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:"700",textTransform:"uppercase",marginBottom:"4px"}}>Verification Status</div>
+                  {renderVerificationBadge(selectedProject.verificationStatus)}
+                </div>
+                <div style={{height:"24px",width:"1px",background:"rgba(255,255,255,0.06)"}}/>
+                <div>
+                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:"700",textTransform:"uppercase",marginBottom:"4px"}}>Reports</div>
+                  <span style={{fontSize:"13px",fontWeight:"700",color:selectedProject.reports>0?"#f87171":"#64748b"}}>{selectedProject.reports || 0}</span>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div style={{marginBottom:"16px"}}>
+                <div style={{fontSize:"11px",fontWeight:"700",color:"#64748b",textTransform:"uppercase",letterSpacing:"0.7px",marginBottom:"6px"}}>Description</div>
+                <div style={{fontSize:"13px",color:"#cbd5e1",lineHeight:1.5,background:"rgba(255,255,255,0.02)",padding:"10px 12px",borderRadius:"8px",border:"1px solid rgba(255,255,255,0.05)"}}>
+                  {selectedProject.description || "No description provided for this project."}
+                </div>
+              </div>
+
+              {/* Creator & Team */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
+                <div>
+                  <div style={{fontSize:"11px",fontWeight:"700",color:"#64748b",textTransform:"uppercase",letterSpacing:"0.7px",marginBottom:"6px"}}>Creator / Leader</div>
+                  <div style={{fontSize:"13px",fontWeight:"600",color:"#f1f5f9"}}>{selectedProject.leaderName || "Unknown"}</div>
+                  <div style={{fontSize:"11.5px",color:"#64748b"}}>{selectedProject.leaderEmail || "—"}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:"11px",fontWeight:"700",color:"#64748b",textTransform:"uppercase",letterSpacing:"0.7px",marginBottom:"6px"}}>Team Capacity</div>
+                  <div style={{fontSize:"13px",fontWeight:"600",color:"#f1f5f9"}}>
+                    {selectedProject.teamDisplay || `${selectedProject.memberCount || 1}/${selectedProject.teamCapacity || 5}`} enrolled
+                  </div>
+                  <div style={{fontSize:"11.5px",color:"#64748b"}}>
+                    {(selectedProject.members || []).length} registered member{(selectedProject.members || []).length !== 1 ? "s" : ""}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tech Stack */}
+              <div style={{marginBottom:"18px"}}>
+                <div style={{fontSize:"11px",fontWeight:"700",color:"#64748b",textTransform:"uppercase",letterSpacing:"0.7px",marginBottom:"6px"}}>Tech Stack / Skills</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+                  {(selectedProject.skills || []).length === 0 && <span style={{fontSize:"12.5px",color:"#64748b"}}>No skills tagged.</span>}
+                  {(selectedProject.skills || []).map(sk => (
+                    <span key={sk} style={{fontSize:"11.5px",padding:"3px 9px",background:"rgba(99,102,241,0.15)",color:"#a5b4fc",borderRadius:"6px",border:"1px solid rgba(99,102,241,0.25)"}}>
+                      {sk}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tasks Progress */}
+              <div style={{marginBottom:"20px",padding:"12px 14px",background:"rgba(255,255,255,0.02)",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.05)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",marginBottom:"6px"}}>
+                  <span style={{color:"#94a3b8"}}>Task Completion</span>
+                  <span style={{color:"#e2e8f0",fontWeight:"600"}}>{selectedProject.completedTasks || 0} / {selectedProject.totalTasks || 0} ({selectedProject.progress || 0}%)</span>
+                </div>
+                <div style={{width:"100%",height:"6px",background:"rgba(255,255,255,0.08)",borderRadius:"3px",overflow:"hidden"}}>
+                  <div style={{width:`${selectedProject.progress || 0}%`,height:"100%",background:"linear-gradient(90deg, #7c3aed, #4ade80)",borderRadius:"3px"}}/>
+                </div>
+              </div>
+
+              {/* Admin Verification Actions */}
+              <div style={{borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:"16px"}}>
+                <div style={{fontSize:"11px",fontWeight:"700",color:"#64748b",textTransform:"uppercase",letterSpacing:"0.7px",marginBottom:"10px"}}>
+                  Admin Actions — Update Verification
+                </div>
+                {actionMsg && (
+                  <div style={{fontSize:"12px",padding:"7px 12px",borderRadius:"6px",marginBottom:"10px",background:"rgba(74,222,128,0.1)",color:"#4ade80",border:"1px solid rgba(74,222,128,0.2)"}}>
+                    {actionMsg}
+                  </div>
+                )}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:"10px"}}>
+                  <button
+                    disabled={updatingVerification || selectedProject.verificationStatus === "approved"}
+                    onClick={()=>handleUpdateVerification(selectedProject.id, "approved")}
+                    style={{padding:"9px 12px",background:"rgba(74,222,128,0.12)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:"8px",color:"#4ade80",fontSize:"12.5px",fontWeight:"600",cursor:(updatingVerification||selectedProject.verificationStatus==="approved")?"not-allowed":"pointer",opacity:(updatingVerification||selectedProject.verificationStatus==="approved")?0.5:1}}>
+                    ✓ Approve
+                  </button>
+                  <button
+                    disabled={updatingVerification || selectedProject.verificationStatus === "pending"}
+                    onClick={()=>handleUpdateVerification(selectedProject.id, "pending")}
+                    style={{padding:"9px 12px",background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:"8px",color:"#fbbf24",fontSize:"12.5px",fontWeight:"600",cursor:(updatingVerification||selectedProject.verificationStatus==="pending")?"not-allowed":"pointer",opacity:(updatingVerification||selectedProject.verificationStatus==="pending")?0.5:1}}>
+                    ⏳ Mark Pending
+                  </button>
+                  <button
+                    disabled={updatingVerification || selectedProject.verificationStatus === "rejected"}
+                    onClick={()=>handleUpdateVerification(selectedProject.id, "rejected")}
+                    style={{padding:"9px 12px",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:"8px",color:"#f87171",fontSize:"12.5px",fontWeight:"600",cursor:(updatingVerification||selectedProject.verificationStatus==="rejected")?"not-allowed":"pointer",opacity:(updatingVerification||selectedProject.verificationStatus==="rejected")?0.5:1}}>
+                    ✕ Reject
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if(activeSection==="dashboard")return<DashboardContent/>;
     if(activeSection==="users")return<UsersSection/>;
+    if(activeSection==="projects")return<ProjectsSection/>;
     return<PlaceholderSection label={allNavItems.find(i=>i.key===activeSection)?.label||activeSection}/>;
   };
 

@@ -61,16 +61,22 @@ public class AdminController {
                 .count();
         result.put("projectsThisWeek", projectsThisWeek);
 
-        // ── KPI: Pending Verifications (projects in 'review' status) ───────
+        // ── KPI: Pending Verifications (projects in 'pending' verification or 'review' status) ───
         long pendingVerifications = allProjects.stream()
-                .filter(p -> "review".equalsIgnoreCase(p.getStatus()))
+                .filter(p -> "pending".equalsIgnoreCase(p.getVerificationStatus()) ||
+                        (p.getVerificationStatus() == null && "review".equalsIgnoreCase(p.getStatus())))
                 .count();
         result.put("pendingVerifications", pendingVerifications);
 
         // Oldest pending verification
         Optional<Project> oldestReview = allProjects.stream()
-                .filter(p -> "review".equalsIgnoreCase(p.getStatus()))
-                .min(Comparator.comparing(p -> p.getCreatedAt() != null ? p.getCreatedAt() : LocalDateTime.now()));
+                .filter(p -> "pending".equalsIgnoreCase(p.getVerificationStatus()) ||
+                        (p.getVerificationStatus() == null && "review".equalsIgnoreCase(p.getStatus())))
+                .min((p1, p2) -> {
+                    LocalDateTime t1 = p1.getCreatedAt() != null ? p1.getCreatedAt() : LocalDateTime.now();
+                    LocalDateTime t2 = p2.getCreatedAt() != null ? p2.getCreatedAt() : LocalDateTime.now();
+                    return t1.compareTo(t2);
+                });
         if (oldestReview.isPresent() && oldestReview.get().getCreatedAt() != null) {
             long daysOld = java.time.temporal.ChronoUnit.DAYS.between(
                     oldestReview.get().getCreatedAt().toLocalDate(),
@@ -257,24 +263,116 @@ public class AdminController {
     @GetMapping("/projects")
     public ResponseEntity<?> getAllProjects() {
         List<Project> projects = projectRepo.findAll();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy");
         List<Map<String, Object>> result = projects.stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", p.getId());
             m.put("name", p.getName());
-            m.put("status", p.getStatus());
-            m.put("leaderEmail", p.getLeaderEmail());
-            m.put("leaderName", p.getLeaderName());
-            m.put("category", p.getCategory());
+            m.put("description", p.getDescription() != null ? p.getDescription() : "");
+            m.put("category", p.getCategory() != null && !p.getCategory().isBlank() ? p.getCategory() : "General");
+
+            // Status (active | review | completed)
+            String st = (p.getStatus() != null && !p.getStatus().isBlank()) ? p.getStatus().toLowerCase() : "active";
+            m.put("status", st);
+
+            // Verification status (approved | pending | rejected)
+            String ver = p.getVerificationStatus();
+            if (ver == null || ver.isBlank()) {
+                ver = "review".equalsIgnoreCase(st) ? "pending" : "approved";
+            }
+            m.put("verificationStatus", ver.toLowerCase());
+
+            // Creator information
+            String leaderEmail = p.getLeaderEmail();
+            String leaderName = p.getLeaderName();
+            if (leaderName == null || leaderName.isBlank() || leaderName.contains("@")) {
+                if (leaderEmail != null) {
+                    Optional<Student> studentOpt = studentRepo.findByEmail(leaderEmail);
+                    if (studentOpt.isPresent() && studentOpt.get().getFullName() != null) {
+                        leaderName = studentOpt.get().getFullName();
+                    } else {
+                        Optional<CandidateProfile> profOpt = profileRepo.findByEmail(leaderEmail);
+                        if (profOpt.isPresent() && profOpt.get().getName() != null) {
+                            leaderName = profOpt.get().getName();
+                        }
+                    }
+                }
+            }
+            if (leaderName == null || leaderName.isBlank()) {
+                leaderName = leaderEmail != null ? leaderEmail : "Unknown Creator";
+            }
+            m.put("leaderEmail", leaderEmail);
+            m.put("leaderName", leaderName);
+            m.put("leaderPhoto", p.getLeaderPhoto());
+
+            // Team parsing & counts
+            List<String> memberList = parseMemberList(p.getMemberEmails());
+            if (leaderEmail != null && !leaderEmail.isBlank() && !memberList.contains(leaderEmail)) {
+                memberList.add(0, leaderEmail);
+            }
+            int memberCount = Math.max(memberList.size(), 1);
+            int capacity = (p.getTeamCapacity() != null && p.getTeamCapacity() > 0)
+                    ? p.getTeamCapacity()
+                    : Math.max(memberCount, 5);
+            m.put("members", memberList);
+            m.put("memberCount", memberCount);
+            m.put("teamCapacity", capacity);
+            m.put("teamDisplay", memberCount + "/" + capacity);
+
+            // Tech stack / skills
+            List<String> skillsList = parseSkillNames(p.getSkills());
+            m.put("skills", skillsList);
+
+            // Reports count (from project or team member pending issues)
+            int reports = (p.getReportCount() != null) ? p.getReportCount() : 0;
+            if (reports == 0 && leaderEmail != null) {
+                reports = teamConnectionRepo.findByToEmailAndStatus(leaderEmail, "pending").size();
+            }
+            m.put("reports", reports);
+
+            // Dates & Progress
+            m.put("dueDate", p.getDueDate() != null ? p.getDueDate() : "Flexible");
             m.put("createdAt", p.getCreatedAt() != null ? p.getCreatedAt().toString() : null);
+            m.put("createdDate", p.getCreatedAt() != null ? p.getCreatedAt().format(fmt) : "—");
+
             long totalTasks = taskRepo.countByProjectId(p.getId());
             long doneTasks  = taskRepo.countByProjectIdAndStatus(p.getId(), "Done");
             m.put("totalTasks", totalTasks);
             m.put("completedTasks", doneTasks);
             m.put("progress", totalTasks > 0
                     ? (int) Math.round(((double) doneTasks / totalTasks) * 100) : 0);
+
             return m;
         }).collect(Collectors.toList());
         return ResponseEntity.ok(result);
+    }
+
+    // ── PATCH / POST /api/admin/projects/{id}/verification ─────────────────
+    @RequestMapping(value = "/projects/{id}/verification", method = {RequestMethod.PATCH, RequestMethod.POST})
+    public ResponseEntity<?> updateProjectVerification(
+            @PathVariable Long id, @RequestBody Map<String, Object> req) {
+        Optional<Project> opt = projectRepo.findById(id);
+        if (opt.isEmpty()) return ResponseEntity.notFound().build();
+        String newStatus = str(req, "verificationStatus");
+        if (newStatus == null || (!newStatus.equalsIgnoreCase("approved")
+                && !newStatus.equalsIgnoreCase("pending")
+                && !newStatus.equalsIgnoreCase("rejected"))) {
+            return ResponseEntity.badRequest().body(Map.of("error", "verificationStatus must be 'approved', 'pending', or 'rejected'"));
+        }
+        Project p = opt.get();
+        p.setVerificationStatus(newStatus.toLowerCase());
+        projectRepo.save(p);
+        return ResponseEntity.ok(Map.of("message", "Verification status updated", "verificationStatus", newStatus.toLowerCase()));
+    }
+
+    private List<String> parseMemberList(String memberEmails) {
+        if (memberEmails == null || memberEmails.isBlank()) return new ArrayList<>();
+        List<String> list = new ArrayList<>();
+        String cleaned = memberEmails.replaceAll("[\\[\\]\"\\s]", "");
+        for (String item : cleaned.split(",")) {
+            if (!item.isBlank()) list.add(item.trim());
+        }
+        return list;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -321,7 +419,7 @@ public class AdminController {
         // Add recent project creations
         projects.stream()
                 .filter(p -> p.getCreatedAt() != null)
-                .sorted(Comparator.comparing(Project::getCreatedAt).reversed())
+                .sorted((p1, p2) -> p2.getCreatedAt().compareTo(p1.getCreatedAt()))
                 .limit(5)
                 .forEach(p -> {
                     Map<String, Object> a = new LinkedHashMap<>();
@@ -335,32 +433,39 @@ public class AdminController {
 
         // Add recent review-status projects
         projects.stream()
-                .filter(p -> "review".equalsIgnoreCase(p.getStatus()) && p.getUpdatedAt() != null)
-                .sorted(Comparator.comparing(Project::getUpdatedAt).reversed())
+                .filter(p -> ("review".equalsIgnoreCase(p.getStatus()) || "pending".equalsIgnoreCase(p.getVerificationStatus()))
+                        && (p.getUpdatedAt() != null || p.getCreatedAt() != null))
+                .sorted((p1, p2) -> {
+                    LocalDateTime t1 = p1.getUpdatedAt() != null ? p1.getUpdatedAt() : p1.getCreatedAt();
+                    LocalDateTime t2 = p2.getUpdatedAt() != null ? p2.getUpdatedAt() : p2.getCreatedAt();
+                    return t2.compareTo(t1);
+                })
                 .limit(3)
                 .forEach(p -> {
+                    LocalDateTime ts = p.getUpdatedAt() != null ? p.getUpdatedAt() : p.getCreatedAt();
                     Map<String, Object> a = new LinkedHashMap<>();
                     a.put("type", "project_review");
                     a.put("color", "yellow");
                     a.put("label", "Project submitted for review — " + p.getName());
-                    a.put("timestamp", p.getUpdatedAt().toString());
-                    a.put("formattedTime", formatTimestamp(p.getUpdatedAt()));
+                    a.put("timestamp", ts != null ? ts.toString() : "");
+                    a.put("formattedTime", formatTimestamp(ts));
                     activities.add(a);
                 });
 
         // Add recent team connection events
         connections.stream()
                 .filter(c -> c.getCreatedAt() != null)
-                .sorted(Comparator.comparing(TeamConnection::getCreatedAt).reversed())
+                .sorted((c1, c2) -> c2.getCreatedAt().compareTo(c1.getCreatedAt()))
                 .limit(3)
                 .forEach(c -> {
                     Map<String, Object> a = new LinkedHashMap<>();
                     boolean isAccepted = "accepted".equalsIgnoreCase(c.getStatus());
+                    String name = (c.getFromName() != null && !c.getFromName().isBlank()) ? c.getFromName() : c.getFromEmail();
                     a.put("type", isAccepted ? "connection_accepted" : "connection_pending");
                     a.put("color", isAccepted ? "green" : "gray");
                     a.put("label", isAccepted
-                            ? "Team connection accepted — " + c.getFromName()
-                            : "Team invite sent — " + c.getFromName());
+                            ? "Team connection accepted — " + name
+                            : "Team invite sent — " + name);
                     a.put("timestamp", c.getCreatedAt().toString());
                     a.put("formattedTime", formatTimestamp(c.getCreatedAt()));
                     activities.add(a);
@@ -370,6 +475,9 @@ public class AdminController {
         activities.sort((a, b) -> {
             String ta = (String) a.get("timestamp");
             String tb = (String) b.get("timestamp");
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return 1;
+            if (tb == null) return -1;
             return tb.compareTo(ta);
         });
 
